@@ -67,7 +67,7 @@ def get_device_info(request):
         "browser": "Sconosciuto",
         "browser_version": "?",
         "os": "Sconosciuto",
-        "os_version": "?",
+        "os_version": "",
         "device": "Desktop",
         "is_mobile": False,
         "is_tablet": False,
@@ -82,10 +82,13 @@ def get_device_info(request):
     # Rilevamento OS
     if 'Windows NT 10' in ua:
         info["os"] = "Windows 10/11"
+        info["os_version"] = "NT 10.0"  # Mostra la versione del kernel
     elif 'Windows NT 6.3' in ua:
         info["os"] = "Windows 8.1"
+        info["os_version"] = "NT 6.3"
     elif 'Windows NT 6.1' in ua:
         info["os"] = "Windows 7"
+        info["os_version"] = "NT 6.1"
     elif 'Mac OS X' in ua:
         info["os"] = "macOS"
         version = re.search(r'Mac OS X (\d+[._]\d+)', ua)
@@ -178,7 +181,10 @@ def build_report(ip, ip_info, device_info, request_info, route_name, fingerprint
     # ---------- SEZIONE DISPOSITIVO ----------
     if device_info:
         description += "\n**══════ 💻 DISPOSITIVO ══════**\n"
-        description += f"**🖥️ OS:** {device_info.get('os', 'N/D')} {device_info.get('os_version', '')}\n"
+        os_str = device_info.get('os', 'N/D')
+        if device_info.get('os_version'):
+            os_str += f" ({device_info['os_version']})"
+        description += f"**🖥️ OS:** {os_str}\n"
         description += f"**🌐 Browser:** {device_info.get('browser', 'N/D')} v{device_info.get('browser_version', '')}\n"
         description += f"**📱 Tipo:** {device_info.get('device', 'N/D')}\n"
         if device_info.get('is_bot'):
@@ -534,8 +540,7 @@ def receive_fingerprint():
 
         if visit_id in pending_fingerprints:
             info = pending_fingerprints[visit_id]
-            # Decremento contatore perché build_report lo incrementerà di nuovo
-            visit_counter -= 1
+            visit_counter -= 1  # build_report incrementerà di nuovo
             description, date, counter = build_report(
                 info["ip"],
                 info["ip_info"],
