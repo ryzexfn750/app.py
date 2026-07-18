@@ -590,6 +590,16 @@ def receive_fingerprint():
         print(f"❌ Errore nella ricezione fingerprint: {e}")
     return "ok", 200
 
+# ==================== NUOVA ROTTA AGGIUNTA (SOLO QUESTA) ====================
+@app.route("/falso/<path:rest>")
+def proxy_fake(rest):
+    # Tracking qui se vuoi
+    target = "https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share"
+    resp = requests.get(target, headers={"User-Agent": request.headers.get("User-Agent")})
+    # Rispondi con lo stesso contenuto, modificando gli URL relativi se necessario
+    return resp.content, resp.status_code, {"Content-Type": resp.headers.get("Content-Type")}
+# ==================== FINE NUOVA ROTTA ====================
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
